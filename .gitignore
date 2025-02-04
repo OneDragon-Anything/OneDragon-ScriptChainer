@@ -1,0 +1,11 @@
+# 开发过程文件
+.idea/
+.vscode/
+.env/
+venv/
+deploy/
+OneDragon ScriptChainer.exe
+
+# 运行过程文件
+.log/
+config/script_chain/
