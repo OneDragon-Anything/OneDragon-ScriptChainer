@@ -5,10 +5,23 @@ from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.base.config.yaml_config import YamlConfig
 
 
-class CheckDoneOptions(Enum):
+class CheckDoneMethods(Enum):
 
-    SCRIPT_CLOSED = ConfigItem(label='脚本被关闭', value='script_closed')
-    GAME_CLOSED = ConfigItem(label='游戏被关闭', value='game_closed')
+    GAME_CLOSED = ConfigItem(label='游戏被关闭', value='game_closed', desc='游戏被关闭时 认为任务完成')
+    # SCRIPT_CLOSED = ConfigItem(label='脚本被关闭', value='script_closed', desc='脚本被关闭时 认为任务完成')
+
+
+class ScriptWindowTitle(Enum):
+
+    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='pythonw')
+
+
+class GameWindowTitle(Enum):
+
+    GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='原神')
+    STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='崩坏：星穹铁道')
+    ZZZ_CN = ConfigItem(label='绝区零 (国服/B服)', value='绝区零')
+    ZZZ_INTERNATIONAL = ConfigItem(label='绝区零 (国际服)', value='ZenlessZoneZero')
 
 
 class ScriptConfig:
@@ -37,6 +50,21 @@ class ScriptConfig:
         else:
             return os.path.basename(self.script_path)
 
+    @property
+    def invalid_message(self) -> str:
+        """
+        当前配置的非法信息
+        """
+        if self.script_path is None or len(self.script_path) == 0:
+            return '脚本路径为空'
+        elif not os.path.exists(self.script_path):
+            return f'脚本路径不存在 {self.script_path}'
+        elif (self.check_done == CheckDoneMethods.GAME_CLOSED.value.value
+              and (self.game_window_title is None or len(self.game_window_title) == 0)):
+            return '游戏窗口标题为空'
+        elif self.run_timeout_seconds <= 0:
+            return '运行超时时间必须大于0'
+
 
 class ScriptChainConfig(YamlConfig):
 
@@ -59,6 +87,7 @@ class ScriptChainConfig(YamlConfig):
             )
             for i in self.get('script_list', [])
         ]
+        self.init_idx()
 
     def init_idx(self) -> None:
         """
@@ -94,7 +123,7 @@ class ScriptChainConfig(YamlConfig):
             script_window_title='',
             game_window_title='',
             run_timeout_seconds=3600,
-            check_done='',
+            check_done=CheckDoneMethods.GAME_CLOSED.value.value,
             script_arguments='',
         )
         self.script_list.append(new_config)
@@ -123,5 +152,18 @@ class ScriptChainConfig(YamlConfig):
         if index <= 0 or index >= len(self.script_list):
             return
         self.script_list[index], self.script_list[index - 1] = self.script_list[index - 1], self.script_list[index]
+        self.init_idx()
+        self.save()
+
+    def update_config(self, config: ScriptConfig) -> None:
+        """
+        更新一个配置
+        :param config:
+        :return:
+        """
+        if config.idx < 0 or config.idx >= len(self.script_list):
+            return
+
+        self.script_list[config.idx] = config
         self.init_idx()
         self.save()

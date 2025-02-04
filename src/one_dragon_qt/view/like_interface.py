@@ -1,13 +1,13 @@
 import os
+
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon, HyperlinkCard, ImageLabel
 
 from one_dragon.base.operation.one_dragon_env_context import OneDragonEnvContext
-from one_dragon_qt.widgets.cv2_image import Cv2Image
-from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
-from one_dragon.utils import cv2_utils, os_utils
-
+from one_dragon.utils import os_utils
 from one_dragon_qt.widgets.column import Column
+from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 
 
 class LikeInterface(VerticalScrollInterface):
@@ -37,8 +37,9 @@ class LikeInterface(VerticalScrollInterface):
         content.add_widget(cafe_opt)
 
         img_label = ImageLabel()
-        img = cv2_utils.read_image(os.path.join(os_utils.get_path_under_work_dir('assets', 'ui'), 'sponsor_wechat.png'))
-        image = Cv2Image(img)
+        img_path = os.path.join(os_utils.get_path_under_work_dir('assets', 'ui'), 'sponsor_wechat.png')
+        image = QImage()
+        image.load(img_path, format='PNG')
         img_label.setImage(image)
         img_label.setFixedWidth(250)
         img_label.setFixedHeight(250)

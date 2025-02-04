@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QFileDialog
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import SettingCardGroup, FluentIcon, PushButton, PrimaryPushButton, MessageBoxBase
@@ -9,10 +10,13 @@ from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.utils.i18_utils import gt
 from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.combo_box import ComboBox
+from one_dragon_qt.widgets.setting_card.combo_box_setting_card import ComboBoxSettingCard
 from one_dragon_qt.widgets.setting_card.multi_push_setting_card import MultiPushSettingCard
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
+from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
-from script_chainer.config.script_config import ScriptChainConfig, ScriptConfig
+from script_chainer.config.script_config import ScriptChainConfig, ScriptConfig, GameWindowTitle, CheckDoneMethods, \
+    ScriptWindowTitle
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 
 
@@ -25,10 +29,50 @@ class ScriptEditDialog(MessageBoxBase):
 
         self.config: ScriptConfig = config
 
-        # 将组件添加到布局中
-        self.script_path_opt = PushSettingCard(icon=FluentIcon.FOLDER, title='脚本路径', text='选择')
+        self.script_path_opt = PushSettingCard(icon=FluentIcon.FOLDER, title='脚本路径(*)', text='选择')
         self.script_path_opt.clicked.connect(self.on_script_path_clicked)
         self.viewLayout.addWidget(self.script_path_opt)
+
+        self.script_window_title_opt = ComboBoxSettingCard(
+            icon=FluentIcon.COPY,
+            title='脚本窗口名称',
+            content='需要监听脚本关闭时填入',
+            options_enum=ScriptWindowTitle,
+            with_custom_input=True,
+        )
+        self.viewLayout.addWidget(self.script_window_title_opt)
+        self.script_window_title_opt.setVisible(False)
+
+        self.game_window_title_opt = ComboBoxSettingCard(
+            icon=FluentIcon.COPY,
+            title='游戏窗口名称',
+            content='需要监听游戏关闭时填入',
+            options_enum=GameWindowTitle,
+            with_custom_input=True,
+        )
+        self.viewLayout.addWidget(self.game_window_title_opt)
+
+        self.run_timeout_seconds_opt = TextSettingCard(
+            icon=FluentIcon.CALENDAR,
+            title='运行超时(秒)',
+            content='超时后自动关闭游戏和脚本'
+        )
+        self.viewLayout.addWidget(self.run_timeout_seconds_opt)
+
+        self.check_done_opt = ComboBoxSettingCard(
+            icon=FluentIcon.COPY,
+            title='检查完成方式',
+            options_enum=CheckDoneMethods,
+        )
+        self.viewLayout.addWidget(self.check_done_opt)
+
+        self.script_arguments_opt = TextSettingCard(
+            icon=FluentIcon.COPY,
+            title='脚本启动参数',
+        )
+        self.viewLayout.addWidget(self.script_arguments_opt)
+
+        self.init_by_config(config)
 
     def init_by_config(self, config: ScriptConfig):
         # 复制一个 防止修改了原来的
@@ -43,6 +87,11 @@ class ScriptEditDialog(MessageBoxBase):
         self.config.idx = config.idx
 
         self.script_path_opt.setContent(config.script_path)
+        self.script_window_title_opt.setValue(config.script_window_title, emit_signal=False)
+        self.game_window_title_opt.setValue(config.game_window_title, emit_signal=False)
+        self.run_timeout_seconds_opt.setValue(str(config.run_timeout_seconds), emit_signal=False)
+        self.check_done_opt.setValue(config.check_done, emit_signal=False)
+        self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
 
     def on_script_path_clicked(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, gt('选择你的脚本'))
@@ -53,12 +102,35 @@ class ScriptEditDialog(MessageBoxBase):
         self.config.script_path = file_path
         self.script_path_opt.setContent(file_path)
 
+    def get_config_value(self) -> ScriptConfig:
+        config = ScriptConfig(
+            script_path=self.script_path_opt.contentLabel.text(),
+            script_window_title=self.script_window_title_opt.getValue(),
+            game_window_title=self.game_window_title_opt.getValue(),
+            run_timeout_seconds=int(self.run_timeout_seconds_opt.get_value()),
+            check_done=self.check_done_opt.getValue(),
+            script_arguments=self.script_arguments_opt.get_value(),
+        )
+        config.idx = self.config.idx
+
+        return config
+
 
 class ScriptSettingCard(MultiPushSettingCard):
+
+    value_changed = Signal(ScriptConfig)
+    move_up = Signal(int)
+    deleted = Signal(int)
 
     def __init__(self, config: ScriptConfig, parent=None):
         self.edit_btn: PushButton = PushButton(text='编辑')
         self.edit_btn.clicked.connect(self.on_edit_clicked)
+
+        self.move_up_btn: PushButton = PushButton(text='上移')
+        self.move_up_btn.clicked.connect(self.on_move_up_clicked)
+
+        self.delete_btn: PushButton = PushButton(text='删除')
+        self.delete_btn.clicked.connect(self.on_delete_clicked)
 
         MultiPushSettingCard.__init__(
             self,
@@ -67,7 +139,9 @@ class ScriptSettingCard(MultiPushSettingCard):
             content='脚本',
             parent=parent,
             btn_list=[
-                self.edit_btn
+                self.edit_btn,
+                self.move_up_btn,
+                self.delete_btn,
             ]
         )
         self.config: ScriptConfig = config
@@ -80,10 +154,10 @@ class ScriptSettingCard(MultiPushSettingCard):
         """
         dialog = ScriptEditDialog(config=self.edit_btn.property('config'),
                                   parent=self.window())
-        if dialog.exec():
-            print("保存操作")
-        else:
-            print("取消操作")
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            config = dialog.get_config_value()
+            self.init_by_config(config)
+            self.value_changed.emit(config)
 
     def init_by_config(self, config: ScriptConfig) -> None:
         """
@@ -92,9 +166,24 @@ class ScriptSettingCard(MultiPushSettingCard):
         :return:
         """
         self.config = config
-        self.edit_btn.setProperty('config', config)
         self.setTitle(f'游戏 {self.config.game_window_title}')
         self.setContent(f'脚本 {self.config.script_display_name}')
+
+        self.edit_btn.setProperty('config', config)
+        self.move_up_btn.setProperty('idx', config.idx)
+        self.delete_btn.setProperty('idx', config.idx)
+
+    def on_move_up_clicked(self) -> None:
+        """
+        上移
+        """
+        self.move_up.emit(self.move_up_btn.property('idx'))
+
+    def on_delete_clicked(self) -> None:
+        """
+        删除
+        """
+        self.deleted.emit(self.delete_btn.property('idx'))
 
 
 class ScriptSettingInterface(VerticalScrollInterface):
@@ -107,7 +196,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
             nav_icon=FluentIcon.SETTING,
             object_name='script_setting_interface',
             content_widget=None, parent=parent,
-            nav_text_cn='脚本设置'
+            nav_text_cn='脚本链'
         )
         self.ctx: ScriptChainerContext = ctx
         self.chosen_config: Optional[ScriptChainConfig] = None
@@ -130,6 +219,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
         content_widget.add_widget(self.chain_opt)
 
         self.script_group = SettingCardGroup(gt('脚本链', 'ui'))
+        self.script_card_list: list[ScriptSettingCard] = []
         content_widget.add_widget(self.script_group)
 
         self.add_script_btn = PrimaryPushButton(text='增加脚本')
@@ -202,15 +292,51 @@ class ScriptSettingInterface(VerticalScrollInterface):
             return
 
         # 如果当前group中数量多 则删除
-        while self.script_group.cardLayout.count() > len(self.chosen_config.script_list):
-            self.script_group.cardLayout.removeWidget(self.script_group.cardLayout.widget(0))
+        while len(self.script_card_list) > len(self.chosen_config.script_list):
+            last_card = self.script_card_list.pop()
+            last_card.setParent(None)
+            self.script_group.cardLayout.removeWidget(last_card)
+            self.script_group.adjustSize()
 
         # 初始化已有的显示 group中数量不足则新增
         for i in range(len(self.chosen_config.script_list)):
-            if i < self.script_group.cardLayout.count():
-                card: ScriptSettingCard = self.script_group.cardLayout.itemAt(i).widget()
-                card.config = self.chosen_config.script_list[i]
+            if i < len(self.script_card_list):
+                card: ScriptSettingCard = self.script_card_list[i]
+                card.init_by_config(self.chosen_config.script_list[i])
             else:
                 card: ScriptSettingCard = ScriptSettingCard(self.chosen_config.script_list[i], parent=self.script_group)
                 card.setVisible(True)
+                self.script_card_list.append(card)
                 self.script_group.addSettingCard(card)
+                card.value_changed.connect(self.script_config_changed)
+                card.move_up.connect(self.script_config_move_up)
+                card.deleted.connect(self.script_config_deleted)
+
+    def script_config_changed(self, config: ScriptConfig) -> None:
+        """
+        脚本配置变化
+        """
+        if self.chosen_config is None:
+            return
+
+        self.chosen_config.update_config(config)
+
+    def script_config_move_up(self, idx: int) -> None:
+        """
+        脚本配置上移
+        """
+        if self.chosen_config is None:
+            return
+
+        self.chosen_config.move_up(idx)
+        self.update_chain_display()
+
+    def script_config_deleted(self, idx: int) -> None:
+        """
+        脚本配置删除
+        """
+        if self.chosen_config is None:
+            return
+
+        self.chosen_config.delete_one(idx)
+        self.update_chain_display()

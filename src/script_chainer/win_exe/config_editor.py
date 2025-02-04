@@ -1,8 +1,12 @@
 from PySide6.QtWidgets import QApplication
+from qfluentwidgets import NavigationItemPosition, setTheme, Theme
 
 from one_dragon_qt.services.styles_manager import OdQtStyleSheet
+from one_dragon_qt.view.like_interface import LikeInterface
 from one_dragon_qt.windows.app_window_base import AppWindowBase
 from script_chainer.context.script_chainer_context import ScriptChainerContext
+from script_chainer.context.version import VERSION
+from script_chainer.gui.page.editor_setting_interface import EditorSettingInterface
 from script_chainer.gui.page.script_setting_interface import ScriptSettingInterface
 
 
@@ -13,9 +17,9 @@ class AppWindow(AppWindowBase):
         self.ctx: ScriptChainerContext = ctx
         AppWindowBase.__init__(
             self,
-            win_title="一条龙 千机链",
+            win_title="一条龙 千机链 配置器",
             project_config=ctx.project_config,
-            app_icon="zzz_logo.ico",
+            app_icon="editor_icon.ico",
             parent=parent,
         )
 
@@ -44,21 +48,30 @@ class AppWindow(AppWindowBase):
         OdQtStyleSheet.AREA_WIDGET.apply(self.areaWidget)
         OdQtStyleSheet.TITLE_BAR.apply(self.titleBar)
 
+        self.titleBar.setVersion(VERSION)
+
     def create_sub_interface(self):
         """创建和添加各个子界面"""
         self.add_sub_interface(ScriptSettingInterface(self.ctx, parent=self))
-        # 点赞
-        # self.add_sub_interface(
-        #     LikeInterface(self.ctx, parent=self),
-        #     position=NavigationItemPosition.BOTTOM,
-        # )
+
+        self.add_sub_interface(
+            LikeInterface(self.ctx, parent=self),
+            position=NavigationItemPosition.BOTTOM,
+        )
+
+        self.add_sub_interface(
+            EditorSettingInterface(self.ctx, parent=self),
+            position=NavigationItemPosition.BOTTOM,
+        )
 
 
 def __run():
     ctx = ScriptChainerContext()
+    setTheme(Theme[ctx.custom_config.theme.upper()], lazy=True)
     app = QApplication([])
     window = AppWindow(ctx)
     window.show()
+    window.activateWindow()
     app.exec()
     ctx.after_app_shutdown()
 

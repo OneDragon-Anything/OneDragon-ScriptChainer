@@ -64,6 +64,8 @@ class SettingCardBase(SettingCard):
 
     def setContent(self, content: str):
         """设置卡片内容"""
+        if content is None or len(content) == 0:
+            return
         self.contentLabel.setText(gt(content, "ui"))
         self.contentLabel.setVisible(content is not None and len(content) > 0)  # 根据内容设置可见性
 

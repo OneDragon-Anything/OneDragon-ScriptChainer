@@ -4,8 +4,9 @@
 .env/
 venv/
 deploy/
-OneDragon ScriptChainer.exe
+*.exe
 
 # 运行过程文件
 .log/
 config/script_chain/
+config/custom.yml

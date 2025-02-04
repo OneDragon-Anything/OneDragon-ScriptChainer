@@ -1,0 +1,2 @@
+pyinstaller==6.7.0  # package into exe
+colorama==0.4.6
