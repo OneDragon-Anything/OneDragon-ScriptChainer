@@ -1,7 +1,7 @@
 <!-- markdownlint-restore -->
 <div align="center">
 
-<img src="https://socialify.git.ci/OneDragon-Anything/OneDragon-ScriptChainer/image?description=1&language=1&logo=https%3A%2F%2Fraw.githubusercontent.com%2FOneDragon-Anything%2FOneDragon-ScriptChainer%2Frefs%2Fheads%2Fmain%2Fassets%2Fui%2Frunner_icon.ico&name=1&owner=1&stargazers=1&theme=Light" alt="一条龙 千机链"/>
+<img src="https://socialify.git.ci/OneDragon-Anything/OneDragon-ScriptChainer/image?description=1&language=1&logo=https%3A%2F%2Fgithub.com%2FOneDragon-Anything%2FOneDragon-ScriptChainer%2Fblob%2Fmain%2F.github%2Fimage%2Frunner_icon.png%3Fraw%3Dtrue&name=1&owner=1&stargazers=1&theme=Auto" alt="一条龙 千机链"/>
 
 ---
 
@@ -35,6 +35,6 @@
 
 <img src="./image/sponsor.png" width = "480" alt="图片名称" align=center />
 
-💖 查看[致谢名单](https://one-dragon.org/other/zh/like/thanks_2024.html)
+💖 [致谢名单](https://one-dragon.org/other/zh/like/thanks_2025.html)
 
 </div>

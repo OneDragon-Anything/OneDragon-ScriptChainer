@@ -6,6 +6,7 @@ import time
 
 from colorama import init, Fore, Style
 
+from one_dragon.utils import os_utils, cmd_utils
 from script_chainer.config.script_config import ScriptConfig, ScriptChainConfig, CheckDoneMethods
 
 init(autoreset=True)
@@ -47,6 +48,7 @@ def close_window(window_title, period: float = 0.1) -> bool:
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=int, default=1, help='脚本链编号')
+    parser.add_argument('--shutdown', action='store_true', help='结束后关机')
 
     return parser.parse_args()
 
@@ -127,7 +129,13 @@ def run():
     for script_config in chain_config.script_list:
         run_script(script_config)
 
-    print_message('已完成全部脚本 5秒后关闭')
+    print_message('已完成全部脚本')
+
+    if args.shutdown:
+        cmd_utils.shutdown_sys(60)
+        print_message('准备关机')
+
+    print_message('5秒后关闭本窗口')
     time.sleep(5)
 
 
