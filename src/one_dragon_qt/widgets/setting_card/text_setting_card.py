@@ -1,4 +1,4 @@
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit
 from qfluentwidgets import FluentIconBase
@@ -40,6 +40,7 @@ class TextSettingCard(SettingCardBase):
         # 创建输入框控件
         self.line_edit = LineEdit(self)
         self.line_edit.setMaximumWidth(input_max_width)
+        self.line_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.line_edit.setPlaceholderText(input_placeholder)
         self.line_edit.setClearButtonEnabled(True)
 

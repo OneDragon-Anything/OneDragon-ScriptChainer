@@ -4,7 +4,7 @@ from typing import Optional
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QFileDialog
 from PySide6.QtWidgets import QWidget
-from qfluentwidgets import SettingCardGroup, FluentIcon, PushButton, PrimaryPushButton, MessageBoxBase
+from qfluentwidgets import SettingCardGroup, FluentIcon, PushButton, PrimaryPushButton, MessageBoxBase, HyperlinkCard
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.utils.i18_utils import gt
@@ -15,8 +15,8 @@ from one_dragon_qt.widgets.setting_card.multi_push_setting_card import MultiPush
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
-from script_chainer.config.script_config import ScriptChainConfig, ScriptConfig, GameWindowTitle, CheckDoneMethods, \
-    ScriptWindowTitle
+from script_chainer.config.script_config import ScriptChainConfig, ScriptConfig, GameProcessName, CheckDoneMethods, \
+    ScriptProcessName
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 
 
@@ -25,7 +25,6 @@ class ScriptEditDialog(MessageBoxBase):
         MessageBoxBase.__init__(self, parent)
         self.yesButton.setText('保存')
         self.cancelButton.setText('取消')
-        self.setMinimumWidth(800)
 
         self.config: ScriptConfig = config
 
@@ -33,30 +32,30 @@ class ScriptEditDialog(MessageBoxBase):
         self.script_path_opt.clicked.connect(self.on_script_path_clicked)
         self.viewLayout.addWidget(self.script_path_opt)
 
-        self.script_window_title_opt = ComboBoxSettingCard(
+        self.script_process_name_opt = ComboBoxSettingCard(
             icon=FluentIcon.COPY,
-            title='脚本窗口名称',
+            title='脚本进程名称',
             content='需要监听脚本关闭时填入',
-            options_enum=ScriptWindowTitle,
+            options_enum=ScriptProcessName,
             with_custom_input=True,
         )
-        self.viewLayout.addWidget(self.script_window_title_opt)
-        self.script_window_title_opt.setVisible(False)
+        self.viewLayout.addWidget(self.script_process_name_opt)
 
-        self.game_window_title_opt = ComboBoxSettingCard(
+        self.game_process_name_opt = ComboBoxSettingCard(
             icon=FluentIcon.COPY,
-            title='游戏窗口名称',
+            title='游戏进程名称',
             content='需要监听游戏关闭时填入',
-            options_enum=GameWindowTitle,
+            options_enum=GameProcessName,
             with_custom_input=True,
         )
-        self.viewLayout.addWidget(self.game_window_title_opt)
+        self.viewLayout.addWidget(self.game_process_name_opt)
 
         self.run_timeout_seconds_opt = TextSettingCard(
             icon=FluentIcon.CALENDAR,
             title='运行超时(秒)',
-            content='超时后自动关闭游戏和脚本'
+            content='超时后自动关闭游戏和脚本',
         )
+        self.run_timeout_seconds_opt.line_edit.setMinimumWidth(200)
         self.viewLayout.addWidget(self.run_timeout_seconds_opt)
 
         self.check_done_opt = ComboBoxSettingCard(
@@ -70,6 +69,7 @@ class ScriptEditDialog(MessageBoxBase):
             icon=FluentIcon.COPY,
             title='脚本启动参数',
         )
+        self.script_arguments_opt.line_edit.setMinimumWidth(200)
         self.viewLayout.addWidget(self.script_arguments_opt)
 
         self.init_by_config(config)
@@ -78,8 +78,8 @@ class ScriptEditDialog(MessageBoxBase):
         # 复制一个 防止修改了原来的
         self.config = ScriptConfig(
             script_path=config.script_path,
-            script_window_title=config.script_window_title,
-            game_window_title=config.game_window_title,
+            script_process_name=config.script_process_name,
+            game_process_name=config.game_process_name,
             run_timeout_seconds=config.run_timeout_seconds,
             check_done=config.check_done,
             script_arguments=config.script_arguments,
@@ -87,15 +87,15 @@ class ScriptEditDialog(MessageBoxBase):
         self.config.idx = config.idx
 
         self.script_path_opt.setContent(config.script_path)
-        self.script_window_title_opt.setValue(config.script_window_title, emit_signal=False)
-        self.game_window_title_opt.setValue(config.game_window_title, emit_signal=False)
+        self.script_process_name_opt.setValue(config.script_process_name, emit_signal=False)
+        self.game_process_name_opt.setValue(config.game_process_name, emit_signal=False)
         self.run_timeout_seconds_opt.setValue(str(config.run_timeout_seconds), emit_signal=False)
         self.check_done_opt.setValue(config.check_done, emit_signal=False)
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
 
     def on_script_path_clicked(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, gt('选择你的脚本'))
-        if file_path is not None:
+        if file_path is not None and file_path != '':
             self.on_script_path_chosen(os.path.normpath(file_path))
 
     def on_script_path_chosen(self, file_path) -> None:
@@ -105,8 +105,8 @@ class ScriptEditDialog(MessageBoxBase):
     def get_config_value(self) -> ScriptConfig:
         config = ScriptConfig(
             script_path=self.script_path_opt.contentLabel.text(),
-            script_window_title=self.script_window_title_opt.getValue(),
-            game_window_title=self.game_window_title_opt.getValue(),
+            script_process_name=self.script_process_name_opt.getValue(),
+            game_process_name=self.game_process_name_opt.getValue(),
             run_timeout_seconds=int(self.run_timeout_seconds_opt.get_value()),
             check_done=self.check_done_opt.getValue(),
             script_arguments=self.script_arguments_opt.get_value(),
@@ -166,7 +166,7 @@ class ScriptSettingCard(MultiPushSettingCard):
         :return:
         """
         self.config = config
-        self.setTitle(f'游戏 {self.config.game_window_title}')
+        self.setTitle(f'游戏 {self.config.game_display_name}')
         self.setContent(f'脚本 {self.config.script_display_name}')
 
         self.edit_btn.setProperty('config', config)
@@ -203,6 +203,11 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
     def get_content_widget(self) -> QWidget:
         content_widget = Column()
+
+        self.help_opt = HyperlinkCard(icon=FluentIcon.HELP, title='使用说明', text='前往',
+                                      url='https://one-dragon.org/tools/zh/script_chainer.html')
+        self.help_opt.setContent('先看说明 再使用与提问')
+        content_widget.add_widget(self.help_opt)
 
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)

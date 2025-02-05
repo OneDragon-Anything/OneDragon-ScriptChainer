@@ -1,35 +1,36 @@
 import os
 from enum import Enum
 
-from one_dragon.base.config.config_item import ConfigItem
+from one_dragon.base.config.config_item import ConfigItem, get_config_item_from_enum
 from one_dragon.base.config.yaml_config import YamlConfig
 
 
 class CheckDoneMethods(Enum):
 
     GAME_CLOSED = ConfigItem(label='游戏被关闭', value='game_closed', desc='游戏被关闭时 认为任务完成')
-    # SCRIPT_CLOSED = ConfigItem(label='脚本被关闭', value='script_closed', desc='脚本被关闭时 认为任务完成')
+    SCRIPT_CLOSED = ConfigItem(label='脚本被关闭', value='script_closed', desc='脚本被关闭时 认为任务完成')
+    GAME_OR_SCRIPT_CLOSED = ConfigItem(label='游戏或脚本被关闭', value='game_or_script_closed', desc='游戏或脚本被关闭时 认为任务完成')
 
 
-class ScriptWindowTitle(Enum):
+class ScriptProcessName(Enum):
 
-    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='pythonw')
+    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='pythonw.exe')
+    BGI = ConfigItem(label='BetterGI', value='BetterGI.exe')
 
 
-class GameWindowTitle(Enum):
+class GameProcessName(Enum):
 
-    GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='原神')
-    STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='崩坏：星穹铁道')
-    ZZZ_CN = ConfigItem(label='绝区零 (国服/B服)', value='绝区零')
-    ZZZ_INTERNATIONAL = ConfigItem(label='绝区零 (国际服)', value='ZenlessZoneZero')
+    GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='YuanShen.exe')
+    STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
+    ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
 
 
 class ScriptConfig:
 
     def __init__(self,
                  script_path: str,
-                 script_window_title: str,
-                 game_window_title: str,
+                 script_process_name: str,
+                 game_process_name: str,
                  run_timeout_seconds: int,
                  check_done: str,
                  script_arguments: str,
@@ -37,18 +38,28 @@ class ScriptConfig:
 
         self.idx: int = 0  # 下标 由外面控制
         self.script_path: str = script_path  # 运行脚本的路径
-        self.script_window_title: str = script_window_title  # 运行脚本的窗口名称
-        self.game_window_title: str = game_window_title  # 运行游戏的窗口名称
+        self.script_process_name: str = script_process_name  # 运行脚本的真实进程名称
+        self.game_process_name: str = game_process_name  # 运行游戏的真实进程名称
         self.run_timeout_seconds: int = run_timeout_seconds  # 脚本超时时间
         self.check_done: str = check_done  # 怎么判断脚本已经运行完毕
         self.script_arguments: str = script_arguments  # 运行脚本的附加参数
 
     @property
     def script_display_name(self) -> str:
-        if self.script_window_title is not None and len(self.script_window_title) > 0:
-            return self.script_window_title
+        return os.path.basename(self.script_path)
+
+    @property
+    def game_display_name(self) -> str:
+        game_process_enum = [i for i in GameProcessName if i.value.value == self.game_process_name]
+        return game_process_enum[0].value.label if len(game_process_enum) > 0 else self.game_process_name
+
+    @property
+    def check_done_display_name(self) -> str:
+        config = get_config_item_from_enum(CheckDoneMethods, self.check_done)
+        if config is not None:
+            return config.value.label
         else:
-            return os.path.basename(self.script_path)
+            return ''
 
     @property
     def invalid_message(self) -> str:
@@ -59,9 +70,20 @@ class ScriptConfig:
             return '脚本路径为空'
         elif not os.path.exists(self.script_path):
             return f'脚本路径不存在 {self.script_path}'
-        elif (self.check_done == CheckDoneMethods.GAME_CLOSED.value.value
-              and (self.game_window_title is None or len(self.game_window_title) == 0)):
-            return '游戏窗口标题为空'
+        elif get_config_item_from_enum(CheckDoneMethods, self.check_done) is None:
+            return f'检查完成方式非法 {self.check_done}'
+        elif (
+                (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
+                 or self.check_done == CheckDoneMethods.GAME_CLOSED.value.value)
+              and (self.game_process_name is None or len(self.game_process_name) == 0)
+        ):
+            return '游戏进程名称为空'
+        elif (
+                (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
+                 or self.check_done == CheckDoneMethods.SCRIPT_CLOSED.value.value)
+                and (self.script_process_name is None or len(self.script_process_name) == 0)
+        ):
+            return '脚本进程名称为空'
         elif self.run_timeout_seconds <= 0:
             return '运行超时时间必须大于0'
 
@@ -79,8 +101,8 @@ class ScriptChainConfig(YamlConfig):
         self.script_list: list[ScriptConfig] = [
             ScriptConfig(
                 script_path=i.get('script_path', ''),
-                script_window_title=i.get('script_window_title', ''),
-                game_window_title=i.get('game_window_title', ''),
+                script_process_name=i.get('script_process_name', ''),
+                game_process_name=i.get('game_process_name', ''),
                 run_timeout_seconds=i.get('run_timeout_seconds', 3600),
                 check_done=i.get('check_done', ''),
                 script_arguments=i.get('script_arguments', ''),
@@ -102,8 +124,8 @@ class ScriptChainConfig(YamlConfig):
             'script_list': [
                 {
                     'script_path': i.script_path,
-                    'script_window_title': i.script_window_title,
-                    'game_window_title': i.game_window_title,
+                    'script_process_name': i.script_process_name,
+                    'game_process_name': i.game_process_name,
                     'run_timeout_seconds': i.run_timeout_seconds,
                     'check_done': i.check_done,
                     'script_arguments': i.script_arguments,
@@ -120,10 +142,10 @@ class ScriptChainConfig(YamlConfig):
         """
         new_config = ScriptConfig(
             script_path='',
-            script_window_title='',
-            game_window_title='',
+            script_process_name='',
+            game_process_name='',
             run_timeout_seconds=3600,
-            check_done=CheckDoneMethods.GAME_CLOSED.value.value,
+            check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value,
             script_arguments='',
         )
         self.script_list.append(new_config)

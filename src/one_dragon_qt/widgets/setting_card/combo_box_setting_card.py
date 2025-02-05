@@ -161,6 +161,8 @@ class ComboBoxSettingCard(SettingCardBase):
                 self.combo_box.setCurrentIndex(len(self.combo_box.items) - 1)
                 self.custom_input.setText(str(value))
 
+        self.custom_input.setVisible(self.is_current_custom_chosen)
+
         if not emit_signal:
             self.combo_box.blockSignals(False)
             self.custom_input.blockSignals(False)
