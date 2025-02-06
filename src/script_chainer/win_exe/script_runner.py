@@ -195,24 +195,26 @@ def run_script(script_config: ScriptConfig) -> None:
 
         time.sleep(1)
 
-    print_message(f'尝试关闭脚本和游戏进程 {script_config.game_display_name}')
+    if script_config.kill_script_after_done:
+        print_message(f'尝试关闭脚本进程 {script_config.script_process_name}')
+        try:
+            process.kill()
+        except Exception:
+            log.error('关闭脚本子进程失败', exc_info=True)
 
-    try:
-        process.kill()
-    except Exception:
-        log.error('关闭脚本子进程失败', exc_info=True)
+        try:
+            if script_config.script_process_name is not None and len(script_config.script_process_name) > 0:
+                kill_process(script_config.script_process_name)
+        except Exception:
+            log.error('关闭脚本进程失败', exc_info=True)
 
-    try:
-        if script_config.script_process_name is not None and len(script_config.script_process_name) > 0:
-            kill_process(script_config.script_process_name)
-    except Exception:
-        log.error('关闭脚本进程失败', exc_info=True)
-
-    try:
-        if script_config.game_process_name is not None and len(script_config.game_process_name) > 0:
-            kill_process(script_config.game_process_name)
-    except Exception:
-        log.error('关闭游戏进程失败', exc_info=True)
+    if script_config.kill_game_after_done:
+        print_message(f'尝试关闭游戏进程 {script_config.game_process_name}')
+        try:
+            if script_config.game_process_name is not None and len(script_config.game_process_name) > 0:
+                kill_process(script_config.game_process_name)
+        except Exception:
+            log.error('关闭游戏进程失败', exc_info=True)
 
 
 def run():

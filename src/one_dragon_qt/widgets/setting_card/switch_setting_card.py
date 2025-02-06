@@ -66,3 +66,6 @@ class SwitchSettingCard(SettingCardBase):
         self.btn.setChecked(value)
         if not emit_signal:
             self.btn.blockSignals(False)
+
+    def get_value(self) -> bool:
+        return self.btn.isChecked()

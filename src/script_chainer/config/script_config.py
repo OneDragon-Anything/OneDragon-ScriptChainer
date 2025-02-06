@@ -33,6 +33,8 @@ class ScriptConfig:
                  game_process_name: str,
                  run_timeout_seconds: int,
                  check_done: str,
+                 kill_script_after_done: bool,
+                 kill_game_after_done: bool,
                  script_arguments: str,
                  ):
 
@@ -42,6 +44,8 @@ class ScriptConfig:
         self.game_process_name: str = game_process_name  # 运行游戏的真实进程名称
         self.run_timeout_seconds: int = run_timeout_seconds  # 脚本超时时间
         self.check_done: str = check_done  # 怎么判断脚本已经运行完毕
+        self.kill_script_after_done: bool = kill_script_after_done  # 是否在运行完毕之后关闭脚本
+        self.kill_game_after_done: bool = kill_game_after_done  # 是否在运行完毕之后关闭游戏
         self.script_arguments: str = script_arguments  # 运行脚本的附加参数
 
     @property
@@ -74,13 +78,15 @@ class ScriptConfig:
             return f'检查完成方式非法 {self.check_done}'
         elif (
                 (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
-                 or self.check_done == CheckDoneMethods.GAME_CLOSED.value.value)
+                 or self.check_done == CheckDoneMethods.GAME_CLOSED.value.value
+                 or self.kill_game_after_done)
               and (self.game_process_name is None or len(self.game_process_name) == 0)
         ):
             return '游戏进程名称为空'
         elif (
                 (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
-                 or self.check_done == CheckDoneMethods.SCRIPT_CLOSED.value.value)
+                 or self.check_done == CheckDoneMethods.SCRIPT_CLOSED.value.value
+                 or self.kill_script_after_done)
                 and (self.script_process_name is None or len(self.script_process_name) == 0)
         ):
             return '脚本进程名称为空'
@@ -105,6 +111,8 @@ class ScriptChainConfig(YamlConfig):
                 game_process_name=i.get('game_process_name', ''),
                 run_timeout_seconds=i.get('run_timeout_seconds', 3600),
                 check_done=i.get('check_done', ''),
+                kill_script_after_done=i.get('kill_script_after_done', True),
+                kill_game_after_done=i.get('kill_game_after_done', True),
                 script_arguments=i.get('script_arguments', ''),
             )
             for i in self.get('script_list', [])
@@ -128,6 +136,8 @@ class ScriptChainConfig(YamlConfig):
                     'game_process_name': i.game_process_name,
                     'run_timeout_seconds': i.run_timeout_seconds,
                     'check_done': i.check_done,
+                    'kill_script_after_done': i.kill_script_after_done,
+                    'kill_game_after_done': i.kill_game_after_done,
                     'script_arguments': i.script_arguments,
                 }
                 for i in self.script_list
@@ -146,6 +156,8 @@ class ScriptChainConfig(YamlConfig):
             game_process_name='',
             run_timeout_seconds=3600,
             check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value,
+            kill_script_after_done=True,
+            kill_game_after_done=True,
             script_arguments='',
         )
         self.script_list.append(new_config)

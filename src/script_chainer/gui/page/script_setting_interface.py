@@ -2,9 +2,11 @@ import os
 from typing import Optional
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog, QFileDialog
 from PySide6.QtWidgets import QWidget
-from qfluentwidgets import SettingCardGroup, FluentIcon, PushButton, PrimaryPushButton, MessageBoxBase, HyperlinkCard
+from qfluentwidgets import SettingCardGroup, FluentIcon, PushButton, PrimaryPushButton, MessageBoxBase, HyperlinkCard, \
+    CaptionLabel
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.utils.i18_utils import gt
@@ -13,6 +15,7 @@ from one_dragon_qt.widgets.combo_box import ComboBox
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import ComboBoxSettingCard
 from one_dragon_qt.widgets.setting_card.multi_push_setting_card import MultiPushSettingCard
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
+from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.config.script_config import ScriptChainConfig, ScriptConfig, GameProcessName, CheckDoneMethods, \
@@ -28,12 +31,12 @@ class ScriptEditDialog(MessageBoxBase):
 
         self.config: ScriptConfig = config
 
-        self.script_path_opt = PushSettingCard(icon=FluentIcon.FOLDER, title='脚本路径(*)', text='选择')
+        self.script_path_opt = PushSettingCard(icon=FluentIcon.FOLDER, title='脚本路径', text='选择')
         self.script_path_opt.clicked.connect(self.on_script_path_clicked)
         self.viewLayout.addWidget(self.script_path_opt)
 
         self.script_process_name_opt = ComboBoxSettingCard(
-            icon=FluentIcon.COPY,
+            icon=FluentIcon.GAME,
             title='脚本进程名称',
             content='需要监听脚本关闭时填入',
             options_enum=ScriptProcessName,
@@ -42,7 +45,7 @@ class ScriptEditDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.script_process_name_opt)
 
         self.game_process_name_opt = ComboBoxSettingCard(
-            icon=FluentIcon.COPY,
+            icon=FluentIcon.GAME,
             title='游戏进程名称',
             content='需要监听游戏关闭时填入',
             options_enum=GameProcessName,
@@ -51,26 +54,42 @@ class ScriptEditDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.game_process_name_opt)
 
         self.run_timeout_seconds_opt = TextSettingCard(
-            icon=FluentIcon.CALENDAR,
+            icon=FluentIcon.HISTORY,
             title='运行超时(秒)',
-            content='超时后自动关闭游戏和脚本',
+            content='超时后自动进行下一个脚本'
         )
-        self.run_timeout_seconds_opt.line_edit.setMinimumWidth(200)
         self.viewLayout.addWidget(self.run_timeout_seconds_opt)
 
         self.check_done_opt = ComboBoxSettingCard(
-            icon=FluentIcon.COPY,
+            icon=FluentIcon.COMPLETED,
             title='检查完成方式',
             options_enum=CheckDoneMethods,
         )
         self.viewLayout.addWidget(self.check_done_opt)
 
+        self.kill_script_after_done_opt = SwitchSettingCard(
+            icon=FluentIcon.POWER_BUTTON,
+            title='结束后关闭脚本进程',
+        )
+        self.viewLayout.addWidget(self.kill_script_after_done_opt)
+
+        self.kill_game_after_done_opt = SwitchSettingCard(
+            icon=FluentIcon.POWER_BUTTON,
+            title='结束后关闭游戏进程',
+        )
+        self.viewLayout.addWidget(self.kill_game_after_done_opt)
+
         self.script_arguments_opt = TextSettingCard(
-            icon=FluentIcon.COPY,
+            icon=FluentIcon.COMMAND_PROMPT,
             title='脚本启动参数',
         )
         self.script_arguments_opt.line_edit.setMinimumWidth(200)
         self.viewLayout.addWidget(self.script_arguments_opt)
+
+        self.error_label = CaptionLabel(text="输入不正确")
+        self.error_label.setTextColor("#cf1010", QColor(255, 28, 32))
+        self.error_label.hide()
+        self.viewLayout.addWidget(self.error_label)
 
         self.init_by_config(config)
 
@@ -82,6 +101,8 @@ class ScriptEditDialog(MessageBoxBase):
             game_process_name=config.game_process_name,
             run_timeout_seconds=config.run_timeout_seconds,
             check_done=config.check_done,
+            kill_game_after_done=config.kill_game_after_done,
+            kill_script_after_done=config.kill_script_after_done,
             script_arguments=config.script_arguments,
         )
         self.config.idx = config.idx
@@ -91,6 +112,8 @@ class ScriptEditDialog(MessageBoxBase):
         self.game_process_name_opt.setValue(config.game_process_name, emit_signal=False)
         self.run_timeout_seconds_opt.setValue(str(config.run_timeout_seconds), emit_signal=False)
         self.check_done_opt.setValue(config.check_done, emit_signal=False)
+        self.kill_script_after_done_opt.setValue(config.kill_script_after_done, emit_signal=False)
+        self.kill_game_after_done_opt.setValue(config.kill_game_after_done, emit_signal=False)
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
 
     def on_script_path_clicked(self) -> None:
@@ -109,11 +132,25 @@ class ScriptEditDialog(MessageBoxBase):
             game_process_name=self.game_process_name_opt.getValue(),
             run_timeout_seconds=int(self.run_timeout_seconds_opt.get_value()),
             check_done=self.check_done_opt.getValue(),
+            kill_script_after_done=self.kill_script_after_done_opt.get_value(),
+            kill_game_after_done=self.kill_game_after_done_opt.get_value(),
             script_arguments=self.script_arguments_opt.get_value(),
         )
         config.idx = self.config.idx
 
         return config
+
+    def validate(self) -> bool:
+        """ 重写验证表单数据的方法 """
+        config = self.get_config_value()
+        invalid_message = config.invalid_message
+        if invalid_message is not None:
+            self.error_label.setText(invalid_message)
+            self.error_label.show()
+            return False
+        else:
+            self.error_label.hide()
+            return True
 
 
 class ScriptSettingCard(MultiPushSettingCard):
