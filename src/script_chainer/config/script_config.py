@@ -16,6 +16,7 @@ class ScriptProcessName(Enum):
 
     ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='pythonw.exe')
     BGI = ConfigItem(label='BetterGI', value='BetterGI.exe')
+    March7th = ConfigItem(label='三月七小助手', value='March7th Assistant.exe')
 
 
 class GameProcessName(Enum):

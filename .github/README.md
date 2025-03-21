@@ -25,7 +25,7 @@
 
 ## 🛠️ 快速开始
 
-[入门指南](https://one-dragon.org/zzz/zh/quickstart.html)  
+[入门指南](https://onedragon-anything.github.io/tools/zh/script_chainer.html)  
 
 ## ☕ 支持我们
 
@@ -35,6 +35,6 @@
 
 <img src="./image/sponsor.png" width = "480" alt="图片名称" align=center />
 
-💖 [致谢名单](https://one-dragon.org/other/zh/like/thanks_2025.html)
+💖 [致谢名单](https://onedragon-anything.github.io/other/zh/like/thanks_2025.html)
 
 </div>
