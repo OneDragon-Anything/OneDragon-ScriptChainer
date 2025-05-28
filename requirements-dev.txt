@@ -2,3 +2,4 @@ pyyaml==6.0.2
 pyside6==6.8.0.2
 PySide6-Fluent-Widgets==1.7.0
 psutil==6.1.1
+requests==2.32.3

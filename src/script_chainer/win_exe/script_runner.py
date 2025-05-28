@@ -9,10 +9,28 @@ from logging.handlers import TimedRotatingFileHandler
 import psutil
 from colorama import init, Fore, Style
 
+from one_dragon.base.notify.push import Push
 from one_dragon.utils import cmd_utils
 from one_dragon.utils import os_utils
 from script_chainer.config.script_config import ScriptConfig, ScriptChainConfig, CheckDoneMethods
+from script_chainer.context.script_chainer_context import ScriptChainerContext
 
+# 全局变量用于Push实例
+_push_instance = None
+
+def get_push_instance():
+    """获取Push实例，延迟初始化"""
+    global _push_instance
+    if _push_instance is None:
+        try:
+            ctx = ScriptChainerContext()
+            _push_instance = Push(ctx)
+            # 启用控制台输出
+            Push._default_push_config['CONSOLE'] = True
+        except Exception as e:
+            log.error(f'初始化Push实例失败: {e}')
+            _push_instance = None
+    return _push_instance
 
 def get_logger():
     logger = logging.getLogger('OneDragon')
@@ -222,24 +240,44 @@ def run():
     args = parse_args()
     module_name: str = '%02d' % args.chain
     chain_config: ScriptChainConfig = ScriptChainConfig(module_name)
-    if not chain_config.is_file_exists():
-        print_message(f'脚本链配置不存在 {module_name}')
-    else:
-        for i in range(len(chain_config.script_list)):
-            script_config = chain_config.script_list[i]
-            run_script(script_config)
-            if i < len(chain_config.script_list) - 1:
-                print_message('10秒后开始下一个脚本')
-                time.sleep(10)
+    push_instance = get_push_instance()
+    try:
+        if not chain_config.is_file_exists():
+            print_message(f'脚本链配置不存在 {module_name}', "ERROR")
+        else:
+            for i in range(len(chain_config.script_list)):
+                script_config = chain_config.script_list[i]
+                if script_config.notify_start:
+                    if push_instance is not None:
+                        push_instance.send(
+                            content=f'脚本链 {module_name} 开始运行: {script_config.script_display_name}'
+                        )
+                run_script(script_config)
+                if script_config.notify_done:
+                    if push_instance is not None:
+                        push_instance.send(
+                            content=f'脚本链 {module_name} 运行结束: {script_config.script_display_name}'
+                        )
+                if i < len(chain_config.script_list) - 1:
+                    print_message('10秒后开始下一个脚本')
+                    time.sleep(10)
 
-        print_message('已完成全部脚本')
+            print_message('已完成全部脚本')
 
-    if args.shutdown:
-        cmd_utils.shutdown_sys(60)
-        print_message('准备关机')
+        if args.shutdown:
+            cmd_utils.shutdown_sys(60)
+            print_message('准备关机')
 
-    print_message('5秒后关闭本窗口')
-    time.sleep(5)
+        print_message('5秒后关闭本窗口')
+        time.sleep(5)
+    finally:
+        # 清理Push资源
+        global _push_instance
+        if _push_instance is not None:
+            try:
+                _push_instance.ctx.after_app_shutdown()
+            except Exception as e:
+                log.error(f'清理Push资源失败: {e}')
 
 
 if __name__ == '__main__':
