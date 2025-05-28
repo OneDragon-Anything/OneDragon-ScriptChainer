@@ -22,6 +22,7 @@ class ScriptProcessName(Enum):
 class GameProcessName(Enum):
 
     GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='YuanShen.exe')
+    GENSHIN_IMPACT_GLOBAL = ConfigItem(label='原神（国际服）', value='GenshinImpact.exe')
     STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
     ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
 
