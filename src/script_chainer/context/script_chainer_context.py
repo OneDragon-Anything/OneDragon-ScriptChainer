@@ -1,16 +1,18 @@
 import os
 
-from one_dragon.base.operation.one_dragon_custom_context import OneDragonCustomContext
 from one_dragon.base.operation.one_dragon_env_context import OneDragonEnvContext
 from one_dragon.utils import os_utils
+from one_dragon.base.config.push_config import PushConfig
+from one_dragon.custom.custom_config import CustomConfig
 from script_chainer.config.script_config import ScriptChainConfig
 
 
-class ScriptChainerContext(OneDragonEnvContext, OneDragonCustomContext):
+class ScriptChainerContext(OneDragonEnvContext):
 
     def __init__(self):
         OneDragonEnvContext.__init__(self)
-        OneDragonCustomContext.__init__(self)
+        self.custom_config: CustomConfig = CustomConfig()
+        self.push_config: PushConfig = PushConfig()
 
     def get_all_script_chain_config(self) -> list[ScriptChainConfig]:
         config_list: list[ScriptChainConfig] = []
