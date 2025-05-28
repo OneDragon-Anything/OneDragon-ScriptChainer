@@ -1,12 +1,12 @@
 import os
 from typing import Optional
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog, QFileDialog
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import SettingCardGroup, FluentIcon, PushButton, PrimaryPushButton, MessageBoxBase, HyperlinkCard, \
-    CaptionLabel
+                           SubtitleLabel, CaptionLabel, Dialog, LineEdit
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.utils.i18_utils import gt
@@ -248,14 +248,20 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)
-        self.add_chain_btn: PushButton = PushButton(text='新增')
+        self.add_chain_btn: PushButton = PrimaryPushButton(text='新增')
         self.add_chain_btn.clicked.connect(self.on_add_chain_clicked)
+        self.rename_chain_btn: PushButton = PushButton(text='重命名')
+        self.rename_chain_btn.clicked.connect(self.on_rename_chain_clicked)
+        self.delete_chain_btn: PushButton = PushButton(text='删除')
+        self.delete_chain_btn.clicked.connect(self.on_delete_chain_clicked)
         self.chain_opt = MultiPushSettingCard(
             icon=FluentIcon.SETTING,
             title='脚本链',
             btn_list=[
                 self.chain_combo_box,
-                self.add_chain_btn
+                self.add_chain_btn,
+                self.rename_chain_btn,
+                self.delete_chain_btn,
             ]
         )
         content_widget.add_widget(self.chain_opt)
@@ -276,6 +282,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
         VerticalScrollInterface.on_interface_shown(self)
 
         self.update_chain_combo_box()
+        self.chain_combo_box.setCurrentIndex(0)
         self.update_chain_display()
 
     def update_chain_combo_box(self) -> None:
@@ -311,6 +318,40 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.chain_combo_box.init_with_value(config.module_name)
         self.on_chain_selected(-1)
 
+    def on_delete_chain_clicked(self) -> None:
+        """
+        移除一个脚本链
+        :return:
+        """
+        dialog = Dialog("警告", "你确定要删除这个脚本链吗？\n删除之后无法恢复！", parent=self.window())
+        dialog.setTitleBarVisible(False)
+        if dialog.exec():
+            self.ctx.remove_script_chain_config(self.chosen_config)
+            self.chosen_config = None
+            self.update_chain_combo_box()
+            self.update_chain_display()
+
+    def on_rename_chain_clicked(self) -> None:
+        """
+        重命名脚本链
+        :return:
+        """
+        if self.chosen_config is None:
+            return
+        
+        dialog = ChainRenameDialog(self.chosen_config.module_name, parent=self.window())
+        if dialog.exec():
+            new_name = dialog.get_new_name()
+            try:
+                new_config = self.ctx.rename_script_chain_config(self.chosen_config, new_name)
+                self.chosen_config = new_config
+                self.update_chain_combo_box()
+                self.chain_combo_box.init_with_value(new_name)
+            except ValueError as e:
+                error_dialog = Dialog("错误", str(e), parent=self.window())
+                error_dialog.setTitleBarVisible(False)
+                error_dialog.exec()
+
     def on_add_script_clicked(self) -> None:
         """
         新增一个脚本配置
@@ -329,6 +370,8 @@ class ScriptSettingInterface(VerticalScrollInterface):
         chosen: bool = self.chosen_config is not None
         self.script_group.setVisible(chosen)
         self.add_script_btn.setVisible(chosen)
+        self.rename_chain_btn.setVisible(chosen)
+        self.delete_chain_btn.setVisible(chosen)
 
         if not chosen:
             return
@@ -382,3 +425,46 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chosen_config.delete_one(idx)
         self.update_chain_display()
+
+
+class ChainRenameDialog(MessageBoxBase):
+    def __init__(self, current_name: str, parent=None):
+        MessageBoxBase.__init__(self, parent)
+        self.yesButton.setText('重命名')
+        self.cancelButton.setText('取消')
+        self.current_name = current_name
+
+        self.title = SubtitleLabel(text="重命名脚本链")
+        self.viewLayout.addWidget(self.title, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.name_input = LineEdit()
+        self.name_input.setPlaceholderText(current_name)
+        self.name_input.setText(current_name)
+        self.name_input.setFixedWidth(300)
+        self.viewLayout.addWidget(self.name_input)
+
+        self.error_label = CaptionLabel(text="输入不正确")
+        self.error_label.setTextColor("#cf1010", QColor(255, 28, 32))
+        self.error_label.hide()
+        self.viewLayout.addWidget(self.error_label)
+
+    def get_new_name(self) -> str:
+        return self.name_input.text().strip()
+
+    def validate(self) -> bool:
+        new_name = self.get_new_name()
+        if not new_name:
+            self.error_label.setText("脚本链名称不能为空")
+            self.error_label.show()
+            return False
+        elif new_name == self.current_name:
+            self.error_label.setText("新名称不能与当前名称相同")
+            self.error_label.show()
+            return False
+        elif len(new_name) > 10:
+            self.error_label.setText("脚本链名称不能超过10个字符")
+            self.error_label.show()
+            return False
+        else:
+            self.error_label.hide()
+            return True
