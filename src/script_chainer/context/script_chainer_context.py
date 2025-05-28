@@ -40,3 +40,38 @@ class ScriptChainerContext(OneDragonEnvContext, OneDragonCustomContext):
                 config = ScriptChainConfig(module_name=module_name)
                 config.save()
                 return config
+            
+    def remove_script_chain_config(self, config: ScriptChainConfig) -> None:
+        """
+        删除脚本链配置
+        :param config:
+        :return:
+        """
+        file_path = os.path.join(self.script_chain_config_dir(), f'{config.module_name}.yml')
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    def rename_script_chain_config(self, old_config: ScriptChainConfig, new_module_name: str) -> ScriptChainConfig:
+        """
+        重命名脚本链配置
+        :param old_config: 原配置
+        :param new_module_name: 新的模块名称
+        :return: 新的配置对象
+        """
+        config_dir = self.script_chain_config_dir()
+        old_file_path = os.path.join(config_dir, f'{old_config.module_name}.yml')
+        new_file_path = os.path.join(config_dir, f'{new_module_name}.yml')
+        
+        if os.path.exists(new_file_path):
+            raise ValueError(f'脚本链 {new_module_name} 已存在')
+        
+        # 创建新配置
+        new_config = ScriptChainConfig(module_name=new_module_name)
+        new_config.script_list = old_config.script_list.copy()
+        new_config.save()
+        
+        # 删除旧配置文件
+        if os.path.exists(old_file_path):
+            os.remove(old_file_path)
+            
+        return new_config
