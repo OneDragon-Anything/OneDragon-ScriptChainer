@@ -22,6 +22,7 @@ class ScriptProcessName(Enum):
 class GameProcessName(Enum):
 
     GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='YuanShen.exe')
+    GENSHIN_IMPACT_GLOBAL = ConfigItem(label='原神（国际服）', value='GenshinImpact.exe')
     STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
     ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
 
@@ -37,6 +38,8 @@ class ScriptConfig:
                  kill_script_after_done: bool,
                  kill_game_after_done: bool,
                  script_arguments: str,
+                 notify_start: bool,
+                 notify_done: bool,
                  ):
 
         self.idx: int = 0  # 下标 由外面控制
@@ -48,6 +51,8 @@ class ScriptConfig:
         self.kill_script_after_done: bool = kill_script_after_done  # 是否在运行完毕之后关闭脚本
         self.kill_game_after_done: bool = kill_game_after_done  # 是否在运行完毕之后关闭游戏
         self.script_arguments: str = script_arguments  # 运行脚本的附加参数
+        self.notify_start: bool = notify_start  # 是否在脚本开始时通知
+        self.notify_done: bool = notify_done  # 是否在脚本完成时通知
 
     @property
     def script_display_name(self) -> str:
@@ -115,6 +120,8 @@ class ScriptChainConfig(YamlConfig):
                 kill_script_after_done=i.get('kill_script_after_done', True),
                 kill_game_after_done=i.get('kill_game_after_done', True),
                 script_arguments=i.get('script_arguments', ''),
+                notify_start=i.get('notify_start', True),
+                notify_done=i.get('notify_done', True),
             )
             for i in self.get('script_list', [])
         ]
@@ -140,6 +147,8 @@ class ScriptChainConfig(YamlConfig):
                     'kill_script_after_done': i.kill_script_after_done,
                     'kill_game_after_done': i.kill_game_after_done,
                     'script_arguments': i.script_arguments,
+                    'notify_start': i.notify_start,
+                    'notify_done': i.notify_done,
                 }
                 for i in self.script_list
            ]
@@ -160,6 +169,8 @@ class ScriptChainConfig(YamlConfig):
             kill_script_after_done=True,
             kill_game_after_done=True,
             script_arguments='',
+            notify_start=True,
+            notify_done=True,
         )
         self.script_list.append(new_config)
         self.init_idx()

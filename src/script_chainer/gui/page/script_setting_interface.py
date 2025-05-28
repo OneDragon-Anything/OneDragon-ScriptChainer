@@ -91,6 +91,20 @@ class ScriptEditDialog(MessageBoxBase):
         self.error_label.hide()
         self.viewLayout.addWidget(self.error_label)
 
+        self.notify_start_opt = SwitchSettingCard(
+            icon=FluentIcon.MESSAGE,
+            title='脚本开始时发送通知',
+            content='如果开启 则会在脚本开始时发送通知'
+        )
+        self.viewLayout.addWidget(self.notify_start_opt)
+
+        self.notify_done_opt = SwitchSettingCard(
+            icon=FluentIcon.MESSAGE,
+            title='脚本结束时发送通知',
+            content='如果开启 则会在脚本结束时发送通知'
+        )
+        self.viewLayout.addWidget(self.notify_done_opt)
+
         self.init_by_config(config)
 
     def init_by_config(self, config: ScriptConfig):
@@ -104,6 +118,8 @@ class ScriptEditDialog(MessageBoxBase):
             kill_game_after_done=config.kill_game_after_done,
             kill_script_after_done=config.kill_script_after_done,
             script_arguments=config.script_arguments,
+            notify_start=config.notify_start,
+            notify_done=config.notify_done,
         )
         self.config.idx = config.idx
 
@@ -115,6 +131,8 @@ class ScriptEditDialog(MessageBoxBase):
         self.kill_script_after_done_opt.setValue(config.kill_script_after_done, emit_signal=False)
         self.kill_game_after_done_opt.setValue(config.kill_game_after_done, emit_signal=False)
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
+        self.notify_start_opt.setValue(config.notify_start, emit_signal=False)
+        self.notify_done_opt.setValue(config.notify_done, emit_signal=False)
 
     def on_script_path_clicked(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, gt('选择你的脚本'))
@@ -135,6 +153,8 @@ class ScriptEditDialog(MessageBoxBase):
             kill_script_after_done=self.kill_script_after_done_opt.get_value(),
             kill_game_after_done=self.kill_game_after_done_opt.get_value(),
             script_arguments=self.script_arguments_opt.get_value(),
+            notify_start=self.notify_start_opt.get_value(),
+            notify_done=self.notify_done_opt.get_value(),
         )
         config.idx = self.config.idx
 
