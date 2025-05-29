@@ -1,16 +1,19 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 
-from one_dragon.base.operation.one_dragon_env_context import OneDragonEnvContext
 from one_dragon.utils import os_utils
 from one_dragon.base.config.push_config import PushConfig
 from one_dragon.custom.custom_config import CustomConfig
+from one_dragon.envs.project_config import ProjectConfig
 from script_chainer.config.script_config import ScriptChainConfig
 
+ONE_DRAGON_CONTEXT_EXECUTOR = ThreadPoolExecutor(thread_name_prefix='one_dragon_context', max_workers=1)
 
-class ScriptChainerContext(OneDragonEnvContext):
+
+class ScriptChainerContext:
 
     def __init__(self):
-        OneDragonEnvContext.__init__(self)
+        self.project_config: ProjectConfig = ProjectConfig()
         self.custom_config: CustomConfig = CustomConfig()
         self.push_config: PushConfig = PushConfig()
 
@@ -77,3 +80,10 @@ class ScriptChainerContext(OneDragonEnvContext):
             os.remove(old_file_path)
             
         return new_config
+
+    def after_app_shutdown(self) -> None:
+        """
+        App关闭后进行的操作 关闭一切可能资源操作
+        @return:
+        """
+        ONE_DRAGON_CONTEXT_EXECUTOR.shutdown(wait=False, cancel_futures=True)
