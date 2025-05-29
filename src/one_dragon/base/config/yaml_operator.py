@@ -1,9 +1,22 @@
 import os
+import sys
 from typing import Optional
 
 import yaml
 
 from one_dragon.utils.log_utils import log
+
+
+def get_temp_config_path(file_path: str) -> str:
+    """
+    优先检查PyInstaller运行时的_MEIPASS目录下是否有对应的yml文件
+    有则返回该路径，否则返回原路径
+    """
+    if hasattr(sys, '_MEIPASS'):
+        mei_path = os.path.join(sys._MEIPASS, 'config', os.path.basename(file_path))
+        if os.path.exists(mei_path):
+            return mei_path
+    return file_path
 
 
 class YamlOperator:
@@ -14,7 +27,7 @@ class YamlOperator:
         :param file_path: yml文件的路径。不传入时认为是mock，用于测试。
         """
 
-        self.file_path: str = file_path
+        self.file_path: str = get_temp_config_path(file_path) if file_path else None
         """yml文件的路径"""
 
         self.data: dict = {}
