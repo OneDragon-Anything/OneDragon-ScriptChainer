@@ -3,7 +3,8 @@
 .vscode/
 .env/
 venv/
-deploy/
+deploy/build
+deploy/dist
 __pycache__/
 *.exe
 
