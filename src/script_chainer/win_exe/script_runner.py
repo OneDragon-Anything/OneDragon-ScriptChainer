@@ -25,8 +25,6 @@ def get_push_instance():
         try:
             ctx = ScriptChainerContext()
             _push_instance = Push(ctx)
-            # 启用控制台输出
-            Push._default_push_config['CONSOLE'] = True
         except Exception as e:
             log.error(f'初始化Push实例失败: {e}')
             _push_instance = None
@@ -85,7 +83,7 @@ def kill_process(process_name):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--chain', type=int, default=1, help='脚本链编号')
+    parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
     parser.add_argument('--shutdown', action='store_true', help='结束后关机')
 
     return parser.parse_args()
@@ -238,7 +236,7 @@ def run_script(script_config: ScriptConfig) -> None:
 def run():
     init(autoreset=True)
     args = parse_args()
-    module_name: str = '%02d' % args.chain
+    module_name: str = args.chain
     chain_config: ScriptChainConfig = ScriptChainConfig(module_name)
     push_instance = get_push_instance()
     try:
