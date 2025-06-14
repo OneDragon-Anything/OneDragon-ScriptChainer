@@ -111,7 +111,9 @@ def run_script(script_config: ScriptConfig) -> None:
         print_message(f'脚本配置不合法 跳过运行 {invalid_message}')
         return
 
-    command = [script_path, args]
+    command = [script_path]
+    if args and args.strip():
+        command.extend(args.split())
 
     start_time = time.time()
 
