@@ -4,9 +4,11 @@
 .env/
 venv/
 deploy/
+__pycache__/
 *.exe
 
 # 运行过程文件
 .log/
 config/script_chain/
 config/custom.yml
+config/push.yml

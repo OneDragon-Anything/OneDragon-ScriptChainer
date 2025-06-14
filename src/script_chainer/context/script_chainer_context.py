@@ -1,16 +1,21 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 
-from one_dragon.base.operation.one_dragon_custom_context import OneDragonCustomContext
-from one_dragon.base.operation.one_dragon_env_context import OneDragonEnvContext
 from one_dragon.utils import os_utils
+from one_dragon.base.config.push_config import PushConfig
+from one_dragon.custom.custom_config import CustomConfig
+from one_dragon.envs.project_config import ProjectConfig
 from script_chainer.config.script_config import ScriptChainConfig
 
+ONE_DRAGON_CONTEXT_EXECUTOR = ThreadPoolExecutor(thread_name_prefix='one_dragon_context', max_workers=1)
 
-class ScriptChainerContext(OneDragonEnvContext, OneDragonCustomContext):
+
+class ScriptChainerContext:
 
     def __init__(self):
-        OneDragonEnvContext.__init__(self)
-        OneDragonCustomContext.__init__(self)
+        self.project_config: ProjectConfig = ProjectConfig()
+        self.custom_config: CustomConfig = CustomConfig()
+        self.push_config: PushConfig = PushConfig()
 
     def get_all_script_chain_config(self) -> list[ScriptChainConfig]:
         config_list: list[ScriptChainConfig] = []
@@ -40,3 +45,45 @@ class ScriptChainerContext(OneDragonEnvContext, OneDragonCustomContext):
                 config = ScriptChainConfig(module_name=module_name)
                 config.save()
                 return config
+            
+    def remove_script_chain_config(self, config: ScriptChainConfig) -> None:
+        """
+        删除脚本链配置
+        :param config:
+        :return:
+        """
+        file_path = os.path.join(self.script_chain_config_dir(), f'{config.module_name}.yml')
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    def rename_script_chain_config(self, old_config: ScriptChainConfig, new_module_name: str) -> ScriptChainConfig:
+        """
+        重命名脚本链配置
+        :param old_config: 原配置
+        :param new_module_name: 新的模块名称
+        :return: 新的配置对象
+        """
+        config_dir = self.script_chain_config_dir()
+        old_file_path = os.path.join(config_dir, f'{old_config.module_name}.yml')
+        new_file_path = os.path.join(config_dir, f'{new_module_name}.yml')
+        
+        if os.path.exists(new_file_path):
+            raise ValueError(f'脚本链 {new_module_name} 已存在')
+        
+        # 创建新配置
+        new_config = ScriptChainConfig(module_name=new_module_name)
+        new_config.script_list = old_config.script_list.copy()
+        new_config.save()
+        
+        # 删除旧配置文件
+        if os.path.exists(old_file_path):
+            os.remove(old_file_path)
+            
+        return new_config
+
+    def after_app_shutdown(self) -> None:
+        """
+        App关闭后进行的操作 关闭一切可能资源操作
+        @return:
+        """
+        ONE_DRAGON_CONTEXT_EXECUTOR.shutdown(wait=False, cancel_futures=True)

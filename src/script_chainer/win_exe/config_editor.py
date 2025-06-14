@@ -3,6 +3,7 @@ from qfluentwidgets import NavigationItemPosition, setTheme, Theme
 
 from one_dragon_qt.services.styles_manager import OdQtStyleSheet
 from one_dragon_qt.view.like_interface import LikeInterface
+from one_dragon_qt.view.setting.setting_push_interface import SettingPushInterface
 from one_dragon_qt.windows.app_window_base import AppWindowBase
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.context.version import VERSION
@@ -56,6 +57,11 @@ class AppWindow(AppWindowBase):
 
         self.add_sub_interface(
             LikeInterface(self.ctx, parent=self),
+            position=NavigationItemPosition.BOTTOM,
+        )
+
+        self.add_sub_interface(
+            SettingPushInterface(self.ctx, parent=self),
             position=NavigationItemPosition.BOTTOM,
         )
 
