@@ -83,7 +83,7 @@ def kill_process(process_name):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--chain', type=str, default='01', help='脚本链编号')
+    parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
     parser.add_argument('--shutdown', action='store_true', help='结束后关机')
 
     return parser.parse_args()
