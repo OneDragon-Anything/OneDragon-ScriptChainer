@@ -126,7 +126,7 @@ def run_script(script_config: ScriptConfig) -> None:
         if process is None:
             try:
                 subprocess_create_time = now
-                process = subprocess.Popen(command)
+                process = subprocess.Popen(command, cwd=os.path.dirname(script_path))
                 print_message(f'创建脚本子进程 {script_path}')
             except Exception:
                 print_message(f'创建子进程失败 {script_path}')
