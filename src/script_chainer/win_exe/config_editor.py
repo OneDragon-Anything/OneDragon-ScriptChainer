@@ -1,12 +1,12 @@
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import NavigationItemPosition, setTheme, Theme
 
+from one_dragon.version import __version__
 from one_dragon_qt.services.styles_manager import OdQtStyleSheet
 from one_dragon_qt.view.like_interface import LikeInterface
 from one_dragon_qt.view.setting.setting_push_interface import SettingPushInterface
 from one_dragon_qt.windows.app_window_base import AppWindowBase
 from script_chainer.context.script_chainer_context import ScriptChainerContext
-from script_chainer.context.version import VERSION
 from script_chainer.gui.page.editor_setting_interface import EditorSettingInterface
 from script_chainer.gui.page.script_setting_interface import ScriptSettingInterface
 
@@ -49,7 +49,7 @@ class AppWindow(AppWindowBase):
         OdQtStyleSheet.AREA_WIDGET.apply(self.areaWidget)
         OdQtStyleSheet.TITLE_BAR.apply(self.titleBar)
 
-        self.titleBar.setVersion(VERSION)
+        self.titleBar.setVersion(__version__)
 
     def create_sub_interface(self):
         """创建和添加各个子界面"""
