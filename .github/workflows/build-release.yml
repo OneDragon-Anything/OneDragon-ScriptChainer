@@ -1,0 +1,309 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create Release'
+        required: true
+        default: false
+        type: boolean
+
+env:
+  CREATE_RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.create_release == true) || startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      tag: ${{ steps.get_version.outputs.tag }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Get version
+      id: get_version
+      shell: pwsh
+      run: |
+        if ($env:GITHUB_REF -like 'refs/tags/*') {
+          # 已由 tag 推送触发，直接使用该 tag 作为版本
+          $version = $env:GITHUB_REF.Substring(10)
+          $tag = $version
+        } else {
+          # 手动 workflow_dispatch 触发：使用 git 的语义化版本排序，选出最新 tag，然后生成 / 递增 beta 版本
+          # --refs 可避免出现带 ^{} 的 peeled 行，--sort=-version:refname 以版本名倒序排序，'v*' 仅匹配语义化版本前缀
+          $latestRef = git ls-remote --refs --tags --sort=-version:refname origin 'v*' |
+            Where-Object { $_ -match 'refs/tags/(v\d+\.\d+\.\d+(?:-beta\.\d+)?)$' } |
+            Select-Object -First 1
+
+          if (-not $latestRef) {
+            # 仓库还没有任何符合语义版本的 tag，初始化为 v0.1.0-beta.1
+            $baseVersion = 'v0.1.0'
+            $betaNumber = 1
+            $tag = "$baseVersion-beta.$betaNumber"
+          } else {
+            # 行格式: <hash>\trefs/tags/<tagname>
+            if ($latestRef -match 'refs/tags/(.+)$') {
+              $latestTag = $matches[1]
+            } else {
+              throw "无法从 ls-remote 输出中解析最新 tag：$latestRef"
+            }
+
+            if ($latestTag -match '^(v\d+\.\d+\.\d+)-beta\.(\d+)$') {
+              # 最新即为 beta，直接在 beta 编号上 +1
+              $baseVersion = $matches[1]
+              $betaNumber = [int]$matches[2] + 1
+              $tag = "$baseVersion-beta.$betaNumber"
+            } else {
+              # 最新为稳定版本，从该稳定版本开始新的 beta 序列
+              $latestTag -match '^(v\d+\.\d+\.)(\d+)$'
+              $baseVersion = $matches[1] + ([int]$matches[2] + 1)
+              $betaNumber = 1
+              $tag = "$baseVersion-beta.$betaNumber"
+            }
+          }
+
+          $version = $tag
+
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          # 创建并推送新 beta tag
+          git tag $tag
+          git push origin $tag
+        }
+
+        echo "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        echo "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        echo "__version__ = '$version'" | Out-File -FilePath src/one_dragon/version.py -Encoding utf8
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11.9'
+
+    - name: Install uv
+      shell: pwsh
+      run: |
+        Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 | Invoke-Expression
+
+    - name: Create virtual environment and install dependencies
+      shell: pwsh
+      run: |
+        uv venv .venv --python=3.11.9
+        uv pip install -r requirements-dev.txt
+        uv pip install -r requirements-dev-ext.txt
+
+    - name: Download and extract UPX into venv Scripts
+      shell: pwsh
+      run: |
+        $venvScripts = ".\.venv\Scripts"
+        $upxDir = Join-Path $venvScripts "upx"
+        $sourceUpxPath = Join-Path $upxDir "upx-4.2.3-win64" "upx.exe"
+        $destinationUpxPath = Join-Path $venvScripts "upx.exe"
+        $zipPath = "upx.zip"
+
+        Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.3/upx-4.2.3-win64.zip" -OutFile $zipPath
+        Expand-Archive -Path $zipPath -DestinationPath $upxDir -Force
+        Move-Item -Path $sourceUpxPath -Destination $destinationUpxPath -Force
+        Remove-Item -Path $upxDir -Recurse -Force
+        Remove-Item -Path $zipPath -Force
+
+    - name: Build executables
+      shell: pwsh
+      run: |
+        .\.venv\Scripts\Activate.ps1
+        cd deploy
+        pyinstaller "OneDragon ScriptChainer Editor.spec"
+        pyinstaller "OneDragon ScriptChainer Runner.spec"
+
+    - name: Upload Editor
+      if: ${{ env.CREATE_RELEASE == 'false' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: Editor
+        path: deploy/dist/OneDragon ScriptChainer Editor.exe
+
+    - name: Upload Runner
+      if: ${{ env.CREATE_RELEASE == 'false' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: Runner
+        path: deploy/dist/OneDragon ScriptChainer Runner.exe
+
+    - name: Upload Dist
+      if: ${{ env.CREATE_RELEASE == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        if-no-files-found: error
+        path: deploy/dist
+
+  release:
+    runs-on: windows-latest
+    needs: build
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.create_release == true) || startsWith(github.ref, 'refs/tags/') }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download dist
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: .
+
+    - name: Prepare release packages
+      shell: pwsh
+      env:
+        RELEASE_VERSION: ${{ needs.build.outputs.version }}
+      run: |
+        $version = $env:RELEASE_VERSION
+
+        # 在根目录打包两个 exe
+        Compress-Archive -Path "OneDragon ScriptChainer Editor.exe","OneDragon ScriptChainer Runner.exe" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
+
+
+    - name: Generate Changelog
+      id: changelog
+      shell: pwsh
+      run: |
+        $current_version_tag = "${{ needs.build.outputs.version }}" # 从 get_version 步骤获取的标签
+        $commits = @()
+
+        if ($env:GITHUB_REF -like 'refs/tags/*') {
+          # 这是由标签触发的发布
+          # 尝试查找当前标签提交的父提交上的最新标签
+          $previous_tag_candidate = $(git describe --tags --abbrev=0 "$current_version_tag^" 2>$null)
+          if ($previous_tag_candidate) {
+            Write-Host "正在生成从 $previous_tag_candidate 到 $current_version_tag 的更新日志"
+            $commits = git log --pretty=format:"%s|%h" "$previous_tag_candidate..$current_version_tag"
+          } else {
+            Write-Host "未找到相对于 $current_version_tag^ 的上一个标签。列出 $current_version_tag 的最后10个提交。"
+            # 这可能是第一个标签。列出导致它的提交。
+            $commits = git log --pretty=format:"%s|%h" -n 10 "$current_version_tag"
+          }
+        } else {
+          # 这是手动 workflow_dispatch 或分支推送
+          Write-Host "手动或分支构建。列出 HEAD 的最后5个提交。"
+          $commits = git log --pretty=format:"%s|%h" -n 5 HEAD
+        }
+
+        # 按前缀分类提交
+        $categories = @{
+          "feat" = @()
+          "fix" = @()
+          "perf" = @()
+          "refactor" = @()
+          "style" = @()
+          "docs" = @()
+          "test" = @()
+          "ci" = @()
+          "build" = @()
+          "chore" = @()
+          "revert" = @()
+          "other" = @()
+        }
+
+        foreach ($commit in $commits) {
+          if ($commit -match "^(.+)\|(.+)$") {
+            $message = $matches[1]
+            $hash = $matches[2]
+
+            # 提取冒号前的前缀
+            if ($message -match "^([^:]+):(.*)$") {
+              $prefix = $matches[1].Trim().ToLower()
+              $content = $matches[2].Trim()
+
+              # 检查前缀是否在已知分类中
+              if ($categories.ContainsKey($prefix)) {
+                $categories[$prefix] += "- $content ($hash)"
+              } else {
+                $categories["other"] += "- $message ($hash)"
+              }
+            } else {
+              $categories["other"] += "- $message ($hash)"
+            }
+          }
+        }
+
+        # 生成分类后的更新日志
+        $changelog_content = ""
+        $category_names = @{
+          "feat" = "✨ 新功能"
+          "fix" = "🐛 Bug 修复"
+          "perf" = "⚡ 性能优化"
+          "refactor" = "♻️ 代码重构"
+          "style" = "💄 样式调整"
+          "docs" = "📄 文档更新"
+          "test" = "✅ 测试"
+          "ci" = "👷 CI/CD"
+          "build" = "📦 构建"
+          "chore" = "🔧 杂项"
+          "revert" = "⏪ 回滚"
+          "other" = "📝 其他更改"
+        }
+
+        # 定义输出顺序
+        $ordered_keys = @("feat", "fix", "perf", "refactor", "style", "docs", "test", "ci", "build", "chore", "revert", "other")
+
+        foreach ($key in $ordered_keys) {
+          if ($categories[$key].Count -gt 0) {
+            if ($changelog_content -ne "") {
+              $changelog_content += "`n`n"
+            }
+            $changelog_content += "## $($category_names[$key])`n"
+            $changelog_content += ($categories[$key] -join "`n")
+          }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($changelog_content)) {
+          $changelog_content = "没有新的更改或无法确定更新日志。"
+        }
+
+        $output_name = "clean_changelog"
+        $delimiter = "CHANGELOG_DELIMITER_$(New-Guid)"
+
+        echo "$output_name<<$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        echo $changelog_content | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        echo $delimiter | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.build.outputs.tag }}
+        name: "Release ${{ needs.build.outputs.version }}"
+        body: |
+          ## OneDragon ScriptChainer ${{ needs.build.outputs.version }}
+
+          ### 下载说明
+
+          - `OneDragon-ScriptChainer-${{ needs.build.outputs.version }}.zip` - 包含编辑器和运行器的完整包
+
+          ### 使用方法
+
+          1. 下载 `OneDragon-ScriptChainer-${{ needs.build.outputs.version }}.zip`
+          2. 解压到任意目录
+          3. 运行 `OneDragon ScriptChainer Editor.exe` 创建和编辑脚本链
+          4. 运行 `OneDragon ScriptChainer Runner.exe` 执行脚本链
+
+          [更多参考](https://one-dragon.com/tools/zh/script_chainer.html)
+
+          # 更新内容
+
+          ${{ steps.changelog.outputs.clean_changelog }}
+
+        files: |
+          OneDragon-ScriptChainer-${{ needs.build.outputs.version }}.zip
+        generate_release_notes: false
+        prerelease: ${{ contains(needs.build.outputs.version, '-beta.') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
