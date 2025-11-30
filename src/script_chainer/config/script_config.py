@@ -18,6 +18,8 @@ class ScriptProcessName(Enum):
     BGI = ConfigItem(label='BetterGI', value='BetterGI.exe')
     March7th = ConfigItem(label='三月七小助手', value='March7th Assistant.exe')
     MAA_BBB = ConfigItem(label='识宝小助手', value='MFAAvalonia.exe')
+    SRA = ConfigItem(label='StarRailAssistant', value='SRA-cli.exe')
+    MAA_GF2 = ConfigItem(label='MaaGF2Exilium', value='MaaGF2Exilium.exe')
 
 
 class GameProcessName(Enum):
@@ -27,6 +29,8 @@ class GameProcessName(Enum):
     STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
     ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
     HONKAI_IMPACT_CN = ConfigItem(label='崩坏3', value='BH3.exe')
+    LD_Simulator = ConfigItem(label='雷电模拟器', value='dnplayer.exe')
+
 
 
 class ScriptConfig:
