@@ -29,7 +29,7 @@ class GameProcessName(Enum):
     STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
     ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
     HONKAI_IMPACT_CN = ConfigItem(label='崩坏3', value='BH3.exe')
-    LD_Simulator = ConfigItem(label='雷电模拟器', value='dnplayer.exe')
+    MUMU = ConfigItem(label='MUMU模拟器', value='MuMuNxDevice.exe')
 
 
 
