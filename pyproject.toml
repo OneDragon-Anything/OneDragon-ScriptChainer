@@ -1,0 +1,60 @@
+[project]
+name = "onedragon-scriptchainer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "colorama==0.4.6",
+    "opencv-python==4.10.0.84",
+    "psutil==6.1.1",
+    "pyinstaller==6.7.0",
+    "pynput==1.8.1",
+    "pyside6==6.8.0.2",
+    "pyside6-fluent-widgets==1.7.0",
+    "pyyaml==6.0.2",
+    "requests==2.32.3",
+    "ruff>=0.15.5",
+]
+
+# Ruff configuration
+[tool.ruff]
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.11
+target-version = "py311"
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`) codes by default.
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "C",      # mccabe
+    "B",      # bugbear
+    "UP",     # pyupgrade
+    "SIM",    # simplify
+    "TID",    # tidy imports
+]
+ignore = ["RUF001", "RUF003"]
+extend-ignore = [
+    "E501",   # line too long - already handled by black style
+    "C901",   # method too complex - need refactor
+    "SIM102", # nested if statements - maybe more clear to seperate conditions
+]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"

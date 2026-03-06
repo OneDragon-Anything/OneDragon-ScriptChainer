@@ -1,22 +1,26 @@
-from enum import Enum
-from typing import Optional, List, Iterable, Any
-from typing import Union
-
+from PySide6.QtCore import QEvent
 from PySide6.QtCore import Qt
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor
 from PySide6.QtGui import QIcon
 from PySide6.QtGui import Qt
-from qfluentwidgets import FluentIconBase, LineEdit
+from enum import Enum
+from qfluentwidgets import FluentIconBase
+from qfluentwidgets import ToolTip
+from typing import Optional, List, Iterable
+from typing import Union
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon_qt.utils.layout_utils import Margins, IconSize
+from one_dragon_qt.widgets.adapter_init_mixin import AdapterInitMixin
 from one_dragon_qt.widgets.combo_box import ComboBox
 from one_dragon_qt.widgets.setting_card.setting_card_base import SettingCardBase
 from one_dragon_qt.widgets.setting_card.yaml_config_adapter import YamlConfigAdapter
 
 
-class ComboBoxSettingCard(SettingCardBase):
+class ComboBoxSettingCard(SettingCardBase, AdapterInitMixin):
     """包含下拉框的自定义设置卡片类。"""
+
 
     value_changed = Signal(int, object)
 
@@ -26,12 +30,10 @@ class ComboBoxSettingCard(SettingCardBase):
                  margins: Margins = Margins(16, 16, 0, 16),
                  options_enum: Optional[Iterable[Enum]] = None,
                  options_list: Optional[List[ConfigItem]] = None,
-                 adapter: Optional[YamlConfigAdapter] = None,
-                 with_custom_input: bool = False,
-                 custom_opt_txt: str = '自定义',
-                 custom_input_getter: str = 'str',
+                 tooltip: Optional[str] = None,
                  parent=None
                  ):
+
         SettingCardBase.__init__(
             self,
             icon=icon,
@@ -41,22 +43,19 @@ class ComboBoxSettingCard(SettingCardBase):
             margins=margins,
             parent=parent
         )
-        self.with_custom_input: bool = with_custom_input  # 是否允许输入自定义值
-        self.custom_opt_txt: str = custom_opt_txt  # 自定义输入的选项文本
-        self.custom_input_getter: str = custom_input_getter  # 自定义输入的值类型
+        AdapterInitMixin.__init__(self)
+        self.default_content = content
 
         # 初始化下拉框
         self.combo_box = ComboBox(self)
         self.hBoxLayout.addWidget(self.combo_box, 0, Qt.AlignmentFlag.AlignRight)
         self.hBoxLayout.addSpacing(16)
 
-        # 自定义输入框
-        self.custom_input = LineEdit(self)
-        self.custom_input.setContentsMargins(0, 0, 16, 0)
-        self.custom_input.editingFinished.connect(self.on_custom_input_changed)
-        self.hBoxLayout.addWidget(self.custom_input, 0, Qt.AlignmentFlag.AlignRight)
-
-        self.adapter: YamlConfigAdapter = adapter
+        # 处理工具提示
+        self.tooltip_text: str = tooltip
+        self._tooltip: Optional[ToolTip] = None
+        if self.with_tooltip:
+            self.titleLabel.installEventFilter(self)
 
         # 初始化选项
         self._opts_list: List[ConfigItem] = []
@@ -67,7 +66,6 @@ class ComboBoxSettingCard(SettingCardBase):
         if self.combo_box.count() > 0:
             self.combo_box.setCurrentIndex(0)
             self.last_index = 0
-            self.custom_input.setVisible(self.is_current_custom_chosen)
 
         # 连接信号与槽
         self.combo_box.currentIndexChanged.connect(self._on_index_changed)
@@ -84,8 +82,45 @@ class ComboBoxSettingCard(SettingCardBase):
                 self._opts_list.append(opt_item)
                 self.combo_box.addItem(opt_item.ui_text, userData=opt_item.value)
 
-        if self.with_custom_input:
-            self.combo_box.addItem(self.custom_opt_txt, userData=None)
+    def eventFilter(self, obj, event: QEvent) -> bool:
+        """处理标题标签的鼠标事件。"""
+        if obj == self.titleLabel:
+            if event.type() == QEvent.Type.Enter:
+                self._show_tooltip()
+            elif event.type() == QEvent.Type.Leave:
+                self._hide_tooltip()
+        return super().eventFilter(obj, event)
+
+    @property
+    def with_tooltip(self) -> bool:
+        """
+        是否有tooltip
+        @return:
+        """
+        return self.tooltip_text is not None and len(self.tooltip_text) > 0
+
+    def _show_tooltip(self) -> None:
+        """显示工具提示。"""
+        if self.with_tooltip:
+            if self._tooltip:
+                self._tooltip.close()
+            self._tooltip = ToolTip(self.tooltip_text, self)
+            self._tooltip.shadowEffect.setColor(QColor(0, 0, 0, 15))
+            self._tooltip.shadowEffect.setOffset(0, 1)
+            self._tooltip.setDuration(0)
+
+            # 计算工具提示位置
+            label_pos = self.titleLabel.mapToGlobal(self.titleLabel.rect().topLeft())
+            x = label_pos.x() - 64
+            y = label_pos.y() - self._tooltip.size().height() - 10
+            self._tooltip.move(x, y)
+            self._tooltip.show()
+
+    def _hide_tooltip(self) -> None:
+        """隐藏工具提示。"""
+        if self._tooltip:
+            self._tooltip.close()
+            self._tooltip = None
 
     def set_options_by_list(self, options: List[ConfigItem]) -> None:
         """通过 ConfigItem 列表设置下拉框选项。"""
@@ -99,11 +134,6 @@ class ComboBoxSettingCard(SettingCardBase):
 
         self.combo_box.blockSignals(False)
 
-    def init_with_adapter(self, adapter: Optional[YamlConfigAdapter]) -> None:
-        """初始化配置适配器。"""
-        self.adapter = adapter
-        self.setValue(None if adapter is None else adapter.get_value(), emit_signal=False)
-
     def _on_index_changed(self, index: int) -> None:
         """索引变化时发射信号。"""
         if index == self.last_index:
@@ -111,17 +141,7 @@ class ComboBoxSettingCard(SettingCardBase):
 
         self.last_index = index
         self._update_desc()
-
-        val = self.combo_box.currentData()
-        if self.with_custom_input:
-            if self.is_current_custom_chosen:
-                val = self.get_custom_input_value()
-                self.custom_input.setVisible(True)
-            else:
-                self.custom_input.setText(str(val))
-                self.custom_input.setVisible(False)
-        else:
-            self.custom_input.setVisible(False)
+        val = self.combo_box.itemData(index)
 
         if self.adapter is not None:
             self.adapter.set_value(val)
@@ -130,77 +150,31 @@ class ComboBoxSettingCard(SettingCardBase):
 
     def _update_desc(self) -> None:
         """更新描述显示。"""
-        if self.combo_box.currentIndex() >= 0 and self.combo_box.currentIndex() < len(self._opts_list):
+        if self.combo_box.currentIndex() >= 0:
             desc = self._opts_list[self.combo_box.currentIndex()].desc
+            if desc is None or len(desc) == 0:
+                desc = self.default_content
             self.setContent(desc)
-        else:
-            self.setContent('')
 
     def setValue(self, value: object, emit_signal: bool = True) -> None:
         """设置下拉框的值。"""
         if not emit_signal:
             self.combo_box.blockSignals(True)
-            self.custom_input.blockSignals(True)
 
         if value is None:
-            if self.with_custom_input:
-                self.combo_box.setCurrentIndex(len(self.combo_box.items) - 1)
-                self.custom_input.setText('')
-            else:
-                self.last_index = -1
-                self.combo_box.setCurrentIndex(-1)
-        else:
             self.last_index = -1
+            self.combo_box.setCurrentIndex(-1)
+        else:
             for idx in range(self.combo_box.count()):
                 if self.combo_box.itemData(idx) == value:
                     self.last_index = idx
                     self.combo_box.setCurrentIndex(idx)
                     break
 
-            if self.last_index == -1 and self.with_custom_input:
-                self.combo_box.setCurrentIndex(len(self.combo_box.items) - 1)
-                self.custom_input.setText(str(value))
-
-        self.custom_input.setVisible(self.is_current_custom_chosen)
-
         if not emit_signal:
             self.combo_box.blockSignals(False)
-            self.custom_input.blockSignals(False)
-
         self._update_desc()
 
-    def getValue(self) -> Any:
+    def getValue(self) -> object:
         """获取当前选中的值。"""
-        if self.with_custom_input:
-            if self.is_current_custom_chosen:
-                return self.get_custom_input_value()
-            else:
-                return self.combo_box.currentData()
-        else:
-            return self.combo_box.currentData()
-
-    @property
-    def is_current_custom_chosen(self) -> bool:
-        text = self.combo_box.currentText()
-        val = self.combo_box.currentData()
-        return self.with_custom_input and val is None and text == self.custom_opt_txt
-
-    def get_custom_input_value(self) -> Any:
-        """
-        获取自定义输入的值
-        """
-        val = self.custom_input.text()
-        if self.custom_input_getter == 'int':
-            val = int(val)
-        return val
-
-    def on_custom_input_changed(self) -> None:
-        """
-        自定义值的更改
-        """
-        val = self.get_custom_input_value()
-
-        if self.adapter is not None:
-            self.adapter.set_value(val)
-
-        self.value_changed.emit(self.combo_box.currentIndex(), val)
+        return self.combo_box.itemData(self.combo_box.currentIndex())

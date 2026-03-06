@@ -1,10 +1,11 @@
+from typing import List
+from typing import Union, Optional
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtGui import Qt
-from PySide6.QtWidgets import QAbstractButton, QVBoxLayout, QHBoxLayout
+from PySide6.QtWidgets import QAbstractButton, QVBoxLayout, QHBoxLayout, QWidget
 from qfluentwidgets import FluentIconBase
-from typing import List
-from typing import Union, Optional
 
 from one_dragon_qt.utils.layout_utils import Margins, IconSize
 from one_dragon_qt.widgets.setting_card.setting_card_base import SettingCardBase
@@ -14,12 +15,16 @@ class MultiPushSettingCard(SettingCardBase):
     """带多个按钮的设置卡片类"""
 
 
-    def __init__(self,
-                 icon: Union[str, QIcon, FluentIconBase], title: str, content: Optional[str]=None,
-                 icon_size: IconSize = IconSize(16, 16),
-                 margins: Margins = Margins(16, 16, 0, 16),
-                 btn_list: List[QAbstractButton] = None,
-                 parent=None):
+    def __init__(
+            self,
+            icon: Union[str, QIcon, FluentIconBase],
+            title: str,
+            content: Optional[str] = None,
+            icon_size: IconSize = IconSize(16, 16),
+            margins: Margins = Margins(16, 16, 0, 16),
+            btn_list: List[QWidget] = None,
+            parent=None
+    ):
 
         SettingCardBase.__init__(
             self,
@@ -32,16 +37,16 @@ class MultiPushSettingCard(SettingCardBase):
         )
 
         # 初始化按钮布局
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(16)
-        btn_layout.addStretch(1)
+        self.btn_layout = QHBoxLayout()
+        self.btn_layout.setSpacing(16)
+        self.btn_layout.addStretch(1)
         for btn in btn_list:
-            btn_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
-        btn_layout.addSpacing(16)
+            self.btn_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+        self.btn_layout.addSpacing(16)
 
         # 将按钮布局添加到卡片的主布局中
-        self.hBoxLayout.addLayout(btn_layout, 1)
-    
+        self.hBoxLayout.addLayout(self.btn_layout, 1)
+
 
 class MultiLineSettingCard(SettingCardBase):
     """带多行按钮的设置卡片类"""
@@ -50,7 +55,7 @@ class MultiLineSettingCard(SettingCardBase):
                  icon: Union[str, QIcon, FluentIconBase], title: str, content: Optional[str]=None,
                  icon_size: IconSize = IconSize(16, 16),
                  margins: Margins = Margins(16, 16, 0, 16),
-                 line_list: List[List[QAbstractButton]] = None,
+                 line_list: List[List[QWidget]] = None,
                  parent=None):
 
         SettingCardBase.__init__(
@@ -76,6 +81,7 @@ class MultiLineSettingCard(SettingCardBase):
             h_layout.addStretch(1)
             for btn in line:
                 h_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+            h_layout.addSpacing(16)
 
         # 根据按钮行数调整卡片的高度
-        self.setFixedHeight(50 + (len(line_list) - 1) * 30)
+        self.setFixedHeight(60 + (len(line_list) - 1) * 30)

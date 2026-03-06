@@ -1,27 +1,43 @@
+import ctypes
 import os
 import shutil
-import hashlib
-import ctypes
 from ctypes import wintypes
 
-from PySide6.QtGui import Qt
-from PySide6.QtWidgets import QWidget, QFileDialog
-from qfluentwidgets import FluentIcon, SettingCardGroup, setTheme, Theme, VBoxLayout, PrimaryPushButton, PasswordLineEdit, MessageBox
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QFileDialog, QWidget
+from qfluentwidgets import (
+    ColorDialog,
+    Dialog,
+    FluentIcon,
+    PrimaryPushButton,
+    SettingCardGroup,
+    Theme,
+    setTheme,
+)
 
-from one_dragon.base.config.config_item import get_config_item_from_enum
-from one_dragon.base.operation.one_dragon_custom_context import OneDragonCustomContext
-from one_dragon.custom.custom_config import ThemeEnum
-from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
-from one_dragon_qt.widgets.setting_card.combo_box_setting_card import ComboBoxSettingCard
-from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSettingCard
-from one_dragon.utils import os_utils
+from one_dragon.base.config.custom_config import (
+    BackgroundTypeEnum,
+    ThemeEnum,
+    UILanguageEnum,
+)
+from one_dragon.base.operation.one_dragon_context import OneDragonContext
+from one_dragon.utils import app_utils, os_utils
 from one_dragon.utils.i18_utils import gt
+from one_dragon_qt.services.theme_manager import ThemeManager
+from one_dragon_qt.widgets.column import Column
+from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
+    ComboBoxSettingCard,
+)
+from one_dragon_qt.widgets.setting_card.password_switch_setting_card import (
+    PasswordSwitchSettingCard,
+)
+from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 
 
 class SettingCustomInterface(VerticalScrollInterface):
 
-    def __init__(self, ctx: OneDragonCustomContext, parent=None):
-        self.ctx: OneDragonCustomContext = ctx
+    def __init__(self, ctx: OneDragonContext, parent=None):
+        self.ctx: OneDragonContext = ctx
 
         VerticalScrollInterface.__init__(
             self,
@@ -31,16 +47,21 @@ class SettingCustomInterface(VerticalScrollInterface):
         )
 
     def get_content_widget(self) -> QWidget:
-        content_widget = QWidget()
-        content_layout = VBoxLayout(content_widget)
-        content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        content_widget = Column(self)
 
-        content_layout.addWidget(self._init_basic_group())
+        content_widget.add_widget(self._init_basic_group())
 
         return content_widget
 
     def _init_basic_group(self) -> SettingCardGroup:
-        basic_group = SettingCardGroup(gt('外观', 'ui'))
+        basic_group = SettingCardGroup(gt('外观'))
+
+        self.ui_language_opt = ComboBoxSettingCard(
+            icon=FluentIcon.LANGUAGE, title='界面语言',
+            options_enum=UILanguageEnum
+        )
+        self.ui_language_opt.value_changed.connect(self._on_ui_language_changed)
+        basic_group.addSettingCard(self.ui_language_opt)
 
         self.theme_opt = ComboBoxSettingCard(
             icon=FluentIcon.CONSTRACT, title='界面主题',
@@ -49,71 +70,107 @@ class SettingCustomInterface(VerticalScrollInterface):
         self.theme_opt.value_changed.connect(self._on_theme_changed)
         basic_group.addSettingCard(self.theme_opt)
 
-        self.banner_opt = SwitchSettingCard(icon=FluentIcon.PHOTO, title='自定义主页背景', content='设置后重启脚本生效')
-        self.banner_opt.value_changed.connect(self._on_banner_changed)
-        self.banner_select_btn = PrimaryPushButton(FluentIcon.EDIT, '选择', self)
+        # 自定义主题色按钮
+        self.custom_theme_color_btn = PrimaryPushButton(icon=FluentIcon.PALETTE, text=gt('自定义主题色'))
+        self.custom_theme_color_btn.clicked.connect(self._on_custom_theme_color_clicked)
+
+        # 主题色模式（密码保护）
+        self.theme_color_mode_opt = PasswordSwitchSettingCard(
+            icon=FluentIcon.PALETTE,
+            title='自定义主题色',
+            content='开启后可自定义主题色',
+            extra_btn=self.custom_theme_color_btn,
+            password_hint='使用此功能需要密码哦~',
+            password_hash='b0cd76b7d7829362d581b739c0b295abf53182792609078bb17a9dd917ffba7c',
+            dialog_title='嘻嘻~',
+            dialog_content='密码不对哦~',
+            dialog_button_text='再试试吧',
+        )
+        self.theme_color_mode_opt.value_changed.connect(self._on_theme_color_mode_changed)
+
+        basic_group.addSettingCard(self.theme_color_mode_opt)
+
+        self.background_type_opt = ComboBoxSettingCard(
+            icon=FluentIcon.BACKGROUND_FILL,
+            title='主页背景类型',
+            content='选择主页显示的背景',
+            options_enum=BackgroundTypeEnum
+        )
+        self.background_type_opt.value_changed.connect(self._on_background_type_changed)
+        basic_group.addSettingCard(self.background_type_opt)
+
+        self.banner_select_btn = PrimaryPushButton(FluentIcon.EDIT, gt('选择'), self)
         self.banner_select_btn.clicked.connect(self._on_banner_select_clicked)
-        self.banner_opt.hBoxLayout.addWidget(self.banner_select_btn, 0, Qt.AlignmentFlag.AlignRight)
-        self.banner_password = PasswordLineEdit()
-        self.banner_password.setPlaceholderText('使用此功能需要密码哦~')
-        self.banner_password.setMinimumWidth(210)
-        self.banner_opt.hBoxLayout.insertWidget(4, self.banner_password, 0, Qt.AlignmentFlag.AlignRight)
-        self.banner_opt.hBoxLayout.addSpacing(16)
-        basic_group.addSettingCard(self.banner_opt)
+        self.custom_banner_opt = PasswordSwitchSettingCard(
+            icon=FluentIcon.PHOTO,
+            title='自定义主页背景',
+            extra_btn=self.banner_select_btn,
+            password_hint='使用此功能需要密码哦~',
+            password_hash='d678f04ece93caaa4d030696429101725cbf31657dd9ded4fdc3b71b3ee05c54',
+            dialog_title='嘻嘻~',
+            dialog_content='密码不对哦~',
+            dialog_button_text='再试试吧',
+        )
+        self.custom_banner_opt.value_changed.connect(self.reload_banner)
+        basic_group.addSettingCard(self.custom_banner_opt)
 
         return basic_group
 
-
     def on_interface_shown(self) -> None:
-        """
-        子界面显示时 进行初始化
-        :return:
-        """
         VerticalScrollInterface.on_interface_shown(self)
-        theme = get_config_item_from_enum(ThemeEnum, self.ctx.custom_config.theme)
-        if theme is not None:
-            self.theme_opt.setValue(theme.value)
-        
-        self.banner_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('banner'))
-        if not self.ctx.custom_config.banner:
-            self.banner_select_btn.setEnabled(False)
+        self.ui_language_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('ui_language'))
+        self.theme_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('theme'))
+        self.theme_color_mode_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('custom_theme_color'))
+        self.custom_banner_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('custom_banner'))
+        self.background_type_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('background_type'))
 
+    def _on_ui_language_changed(self, index: int, value: str) -> None:
+        language = self.ctx.custom_config.ui_language
+        dialog = Dialog(gt("提示", "ui", language), gt("语言切换成功，需要重启应用程序以生效", "ui", language), self)
+        dialog.setTitleBarVisible(False)
+        dialog.yesButton.setText(gt("立即重启", "ui", language))
+        dialog.cancelButton.setText(gt("稍后重启", "ui", language))
+
+        if dialog.exec():
+            app_utils.start_one_dragon(True)
 
     def _on_theme_changed(self, index: int, value: str) -> None:
-        """
-        仓库类型改变
-        :param index: 选项下标
-        :param value: 值
-        :return:
-        """
-        config_item = get_config_item_from_enum(ThemeEnum, value)
-        self.ctx.custom_config.theme = config_item.value
-        setTheme(Theme[config_item.value.upper()],lazy=True)
+        setTheme(Theme[self.ctx.custom_config.theme.upper()],lazy=True)
 
-    def _on_banner_changed(self, value: bool) -> None:
-        if value:
-            correct_password_hash = 'd7103a21d03b8b922c3af3d477a0adde1633053cde1a7574e8009293ca3b70f1'
-            def _hash_password(password: str) -> str:
-                return hashlib.sha256(password.encode()).hexdigest()
-            if _hash_password(self.banner_password.text()) != correct_password_hash:
-                MessageBox('嘻嘻~', '密码不对哦~', self).exec()
-                self.banner_opt.setValue(False)
-                self.banner_select_btn.setEnabled(False)
-            else:
-                self.banner_select_btn.setEnabled(True)
-        else:
-            self.banner_select_btn.setEnabled(False)
+    def _on_theme_color_mode_changed(self, value: bool) -> None:
+        if not value:
+            self.ctx.signal.reload_banner = True
+
+    def _on_custom_theme_color_clicked(self) -> None:
+        _c = self.ctx.custom_config.theme_color
+        _d = ColorDialog(QColor(_c[0], _c[1], _c[2]), gt('请选择主题色'), self)
+        _d.colorChanged.connect(self._update_custom_theme_color)
+        _d.yesButton.setText(gt('确定'))
+        _d.cancelButton.setText(gt('取消'))
+        _d.exec()
+
+    def _update_custom_theme_color(self, color: QColor) -> None:
+        _ct = (color.red(), color.green(), color.blue())
+        self.ctx.custom_config.theme_color = _ct
+        ThemeManager.set_theme_color(_ct)
 
     def _on_banner_select_clicked(self) -> None:
-        """
-        选择背景图片并复制
-        """
-        # 将默认路径设为图片库路径
-        default_path = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
-        ctypes.windll.shell32.SHGetFolderPathW(None, 0x0027, None, 0, default_path)
-        file_path, _ = QFileDialog.getOpenFileName(self, gt('选择你的背景图片'), default_path.value, filter="Images (*.png *.jpg *.jpeg *.webp *.bmp)")
-        if file_path is not None and file_path != '':
-            banner_path = os.path.join(
-            os_utils.get_path_under_work_dir('custom', 'assets', 'ui'),
-            'banner')
-            shutil.copyfile(file_path, banner_path)
+        _dp = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+        ctypes.windll.shell32.SHGetFolderPathW(None, 0x0027, None, 0, _dp)
+        _fp, _ = QFileDialog.getOpenFileName(
+            self,
+            f"{gt('选择你的')}{gt('背景图片')}",
+            _dp.value,
+            filter="Images and Videos (*.png *.jpg *.jpeg *.webp *.bmp *.webm *.mp4 *.avi *.mov *.mkv);;Images (*.png *.jpg *.jpeg *.webp *.bmp);;Videos (*.webm *.mp4 *.avi *.mov *.mkv)"
+        )
+        if _fp is not None and _fp != '':
+            _bp = os.path.join(os_utils.get_path_under_work_dir('custom', 'assets', 'ui'), 'banner')
+            shutil.copyfile(_fp, _bp)
+            self.reload_banner()
+
+    def _on_background_type_changed(self, index: int, value: str) -> None:
+        """背景类型改变时的回调"""
+        self.reload_banner()
+
+    def reload_banner(self) -> None:
+        self.ctx.signal.reload_banner = True

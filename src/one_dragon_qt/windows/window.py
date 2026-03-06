@@ -1,46 +1,38 @@
-import sys
-
-from PySide6.QtCore import (
-    Qt,
-    QPropertyAnimation,
-    Property,
-    QRect,
-    QRectF,
-    QEasingCurve,
-    QUrl,
-)
-from PySide6.QtGui import QIcon, QPainter, QColor, QFont, QDesktopServices
+from PySide6.QtCore import QRect, QRectF, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QSpacerItem,
-    QSizePolicy,
+    QAbstractScrollArea,
+    QApplication,
     QHBoxLayout,
-    QPushButton, QApplication,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
 )
 from qfluentwidgets import (
-    FluentStyleSheet,
-    isDarkTheme,
-    FluentIcon as FIF,
-    setFont,
-    SplitTitleBar,
-    NavigationBarPushButton,
-    MSFluentWindow,
-    SingleDirectionScrollArea,
-    NavigationBar,
-    qrouter,
     FluentIconBase,
-    NavigationItemPosition, InfoBar, InfoBarPosition,
+    FluentStyleSheet,
+    InfoBar,
+    InfoBarPosition,
+    MSFluentWindow,
+    NavigationBar,
+    NavigationBarPushButton,
+    NavigationItemPosition,
+    SingleDirectionScrollArea,
+    SplitTitleBar,
+    isDarkTheme,
+    qconfig,
+    qrouter,
+    setFont,
 )
 from qfluentwidgets.common.animation import BackgroundAnimationWidget
-from qfluentwidgets.common.config import qconfig
 from qfluentwidgets.components.widgets.frameless_window import FramelessWindow
 from qfluentwidgets.window.stacked_widget import StackedWidget
-from typing import Union
 
 
-# 伪装的父类,用于替换原本的FluentWindowBase初始化
+# 伪装父类 (替换 FluentWindowBase 初始化)
 class PhosFluentWindowBase(BackgroundAnimationWidget, FramelessWindow):
     """Fluent window base class"""
 
@@ -48,100 +40,58 @@ class PhosFluentWindowBase(BackgroundAnimationWidget, FramelessWindow):
         super().__init__(parent=parent)
 
 
-# 主窗口类，继承自 MSFluentWindow，重绘部分功能
+# 主窗口类 (继承自 MSFluentWindow )
 class PhosWindow(MSFluentWindow, PhosFluentWindowBase):
 
     def __init__(self, parent=None):
 
-        # 初始化
-        self._isAeroEnabled = False
-
-        # 调用原始父类执行初始化
+        # 预配置
         self._isMicaEnabled = False
-        self._lightBackgroundColor = QColor(240, 244, 249)
-        self._darkBackgroundColor = QColor(32, 32, 32)
+
+        self._lightBackgroundColor = QColor(248, 249, 252)
+        self._darkBackgroundColor = QColor(39, 39, 39)
+
+        # 父类初始化
         PhosFluentWindowBase.__init__(self, parent=parent)
 
+        # 变量
         self.hBoxLayout = QHBoxLayout(self)
-        self.stackedWidget = StackedWidget(self)
-        self.navigationInterface = None
-
-        # initialize layout
-        self.hBoxLayout.setSpacing(0)
-        self.hBoxLayout.setContentsMargins(0, 0, 0, 0)
-
-        FluentStyleSheet.FLUENT_WINDOW.apply(self.stackedWidget)
-
-        # enable mica effect on win11
-        self.setMicaEffectEnabled(True)
-
-        # show system title bar buttons on macOS
-        if sys.platform == "darwin":
-            self.setSystemTitleBarButtonVisible(True)
-
-        qconfig.themeChangedFinished.connect(self._onThemeChangedFinished)
-
-        # 设置自定义标题栏和导航栏
-        self.setTitleBar(PhosTitleBar(self))
-        self.navigationInterface = OneDragonNavigationBar(self)
-
+        self.stackedWidget = PhosStackedWidget(self)
+        self.navigationInterface = PhosNavigationBar(self)
         self.areaWidget = QWidget()
+        self.areaWidget.setObjectName("areaWidget")
         self.areaLayout = QHBoxLayout(self.areaWidget)
 
-        # 设置布局
+        # 关系
         self.hBoxLayout.addWidget(self.navigationInterface)
-
         self.hBoxLayout.addWidget(self.areaWidget)
-        self.hBoxLayout.setStretchFactor(self.areaWidget, 1)
-
         self.areaLayout.addWidget(self.stackedWidget)
+        self.setTitleBar(PhosTitleBar(self))
+
+        # 配置
+        self.hBoxLayout.setSpacing(0)
+        self.hBoxLayout.setContentsMargins(0, 0, 0, 0)
+        self.hBoxLayout.setStretchFactor(self.areaWidget, 1)
         self.areaLayout.setContentsMargins(0, 32, 0, 0)
-
-        self.areaWidget.setObjectName("areaWidget")
-
         self.titleBar.raise_()
         self.titleBar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
 
-    # 设置 Aero 磨砂效果
-    def setAeroEffectEnabled(self, isEnabled: bool):
-        if sys.platform != "win32":  # 仅在 Windows 平台启用
-            return
+        # 样式
+        FluentStyleSheet.FLUENT_WINDOW.apply(self.stackedWidget)
 
-        self._isAeroEnabled = isEnabled
+        # 函数
+        qconfig.themeChangedFinished.connect(self._onThemeChangedFinished)
 
-        if isEnabled:
-            # 启用 Aero 效果
-            self.windowEffect.setAeroEffect(int(self.winId()))
-        else:
-            # 移除背景效果
-            self.windowEffect.removeBackgroundEffect(self.winId())
 
-        self.setBackgroundColor(self._normalBackgroundColor())  # 设置背景颜色
-
-    # 判断是否启用了 Aero 效果
-    def isAeroEffectEnabled(self):
-        return self._isAeroEnabled
-
-    # 获取正常的背景颜色
+    # 根据主题获取对应的背景色
     def _normalBackgroundColor(self):
-        if not self.isAeroEffectEnabled():
-            # 根据当前主题设置背景颜色
-            return (
-                self._darkBackgroundColor
-                if isDarkTheme()
-                else self._lightBackgroundColor
-            )
+        if isDarkTheme():
+            return self._darkBackgroundColor
+        else:
+            return self._lightBackgroundColor
 
-        # 透明背景
-        return QColor(0, 0, 0, 0)
 
-    # 主题改变时的回调函数
-    def _onThemeChangedFinished(self):
-        if self.isAeroEffectEnabled():
-            # 重新设置 Aero 效果
-            self.windowEffect.setAeroEffect(self.winId(), isDarkTheme())
-
-    # 标题位置
+    # 覆盖父类的加载逻辑
     def resizeEvent(self, e):
         self.titleBar.move(self.navigationInterface.width() + 16, 0)
         self.titleBar.resize(
@@ -149,13 +99,18 @@ class PhosWindow(MSFluentWindow, PhosFluentWindowBase):
         )
 
 
-# 自定义导航栏类，继承自 NavigationBar
-class OneDragonNavigationBar(NavigationBar):
+# 自定义导航栏类 (继承自 NavigationBar )
+class PhosNavigationBar(NavigationBar):
 
     def __init__(self, parent=None):
         super(NavigationBar, self).__init__(parent)
 
-        # 初始化滚动区域和布局
+        # 导航项
+        self.items = {}
+        # 路由历史管理
+        self.history = qrouter
+
+        # 变量
         self.scrollArea = SingleDirectionScrollArea(self)
         self.scrollWidget = QWidget()
         self.vBoxLayout = QVBoxLayout(self)
@@ -163,31 +118,35 @@ class OneDragonNavigationBar(NavigationBar):
         self.bottomLayout = QVBoxLayout()
         self.scrollLayout = QVBoxLayout(self.scrollWidget)
 
-        self.items = {}  # 存储导航项
-        self.history = qrouter  # 路由历史管理
+        # 初始化
+        self.__initWidget()
+        self.__initLayout()
 
-        self.__initWidget()  # 初始化界面
-
-    # 初始化窗口属性
+    # 组件
     def __initWidget(self):
         self.resize(48, self.height())
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-        self.window().installEventFilter(self)  # 安装事件过滤器
 
-        # 设置滚动条样式
-        self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 事件过滤器
+        self.window().installEventFilter(self)
+
+        # 滚动条样式
+        self.scrollArea.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.scrollArea.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.scrollArea.setWidget(self.scrollWidget)
         self.scrollArea.setWidgetResizable(True)
 
         self.scrollWidget.setObjectName("scrollWidget")
         FluentStyleSheet.NAVIGATION_INTERFACE.apply(self)
         FluentStyleSheet.NAVIGATION_INTERFACE.apply(self.scrollWidget)
-        self.__initLayout()  # 初始化布局
 
-    # 初始化布局
+    # 布局
     def __initLayout(self):
-        # 设置布局边距和间距
+        # 配置
         self.vBoxLayout.setContentsMargins(0, 5, 0, 5)
         self.topLayout.setContentsMargins(4, 0, 4, 0)
         self.bottomLayout.setContentsMargins(4, 0, 4, 0)
@@ -196,24 +155,22 @@ class OneDragonNavigationBar(NavigationBar):
         self.topLayout.setSpacing(4)
         self.bottomLayout.setSpacing(4)
         self.scrollLayout.setSpacing(4)
-
-        # 添加布局到主布局
-        self.vBoxLayout.addLayout(self.topLayout, 0)
-        self.vBoxLayout.addWidget(self.scrollArea)
-        self.vBoxLayout.addLayout(self.bottomLayout, 0)
-
-        # 对齐方式
         self.vBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.topLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.scrollLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.bottomLayout.setAlignment(Qt.AlignmentFlag.AlignBottom)
+
+        # 关系
+        self.vBoxLayout.addLayout(self.topLayout, 0)
+        self.vBoxLayout.addWidget(self.scrollArea)
+        self.vBoxLayout.addLayout(self.bottomLayout, 0)
 
     # 插入导航项
     def insertItem(
         self,
         index: int,
         routeKey: str,
-        icon: Union[str, QIcon, FluentIconBase],
+        icon: str | QIcon | FluentIconBase,
         text: str,
         onClick=None,
         selectable=True,
@@ -223,138 +180,142 @@ class OneDragonNavigationBar(NavigationBar):
         if routeKey in self.items:
             return
 
-        # 创建自定义按钮
-        w = PhosNavigationBarPushButton(icon, text, selectable, selectedIcon, self)
-        self.insertWidget(index, routeKey, w, onClick, position)
-        return w
+        # 自定义导航按钮
+        widget = PhosNavigationBarPushButton(icon, text, selectable, selectedIcon, self)
+        self.insertWidget(index, routeKey, widget, onClick, position)
+        return widget
 
+    def _onWidgetClicked(self):
+        widget = self.sender()
+        if widget.isSelectable:
+            # 路由切换逻辑
+            route_key = widget.property("routeKey")
+            self.setCurrentItem(route_key)
 
-# 图标动画类
-class IconAnimation(QPropertyAnimation):
-    """Icon sliding animation"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._opacity = 0
-        self.minOpacity = 100
-        self.maxOpacity = 255
-        self.setTargetObject(self)
-        self.setPropertyName(b"opacity")
-
-    def getOpacity(self):
-        return self._opacity
-
-    def setOpacity(self, value: float):
-        self._opacity = value
-        self.parent().update()  # 更新父对象以重绘
-
-    opacity = Property(float, getOpacity, setOpacity)
-
-    def aniStart(self):
-        """slide down"""
-        self.setStartValue(self.minOpacity)
-        self.setEndValue(self.maxOpacity)
-        self.setDuration(400)  # 调整持续时间
-        self.setEasingCurve(QEasingCurve.Type.OutCubic)  # 使用缓动函数
-        self.start()
-
-    def aniStop(self):
-        """slide up"""
-        self.setStartValue(20)
-        self.setEndValue(0)  # 修改为从最大值到0
-        self.setDuration(100)  # 调整持续时间
-        self.setEasingCurve(QEasingCurve.Type.InCubic)  # 使用缓动函数
-        self.start()
+    def update_all_buttons_theme_color(self, color_rgb: tuple):
+        """更新所有导航按钮的主题色"""
+        for widget in self.items.values():
+            if isinstance(widget, PhosNavigationBarPushButton):
+                widget.update_global_theme_color(color_rgb)
 
 
 # 自定义导航按钮类
-class PhosNavigationBarPushButton(NavigationBarPushButton):
-    """Navigation bar push button"""
 
-    def __init__(
-        self,
-        icon: Union[str, QIcon, FIF],
-        text: str,
-        isSelectable: bool,
-        selectedIcon=None,
-        parent=None,
-    ):
-        super(NavigationBarPushButton, self).__init__(icon, text, isSelectable, parent)
-        self.iconAni = IconAnimation(self)  # 图标滑动动画
-        self._selectedIcon = selectedIcon
+
+class PhosNavigationBarPushButton(NavigationBarPushButton):
+    _theme_colors = {
+        "dark_icon": "#8b8b8b",
+        "light_icon": "#818181",
+        "selected_icon": "#0067c0",
+        "background_dark": 255,
+        "background_light": 0,
+    }
+
+    def __init__(self, icon, text, isSelectable, selectedIcon=None, parent=None):
+        super().__init__(icon, text, isSelectable, parent)
+
+        # 初始化几何参数
+        self.icon_rect = QRectF(22, 13, 20, 20)
+        self.icon_rect_centered = QRectF(22, 18, 20, 20)
+        self.text_rect = QRect(0, 32, 64, 26)
+
+        # 图标配置
+        self._icon = icon
+        self._selectedIcon = selectedIcon or icon
+        # 是否在选中状态下仍显示文字（默认显示）
         self._isSelectedTextVisible = True
 
-        self.setFixedSize(64, 58)  # 设置按钮大小
-        setFont(self, 12, weight=QFont.Weight.ExtraBold)  # 设置字体大小
+        # 固定控件尺寸
+        self.setFixedSize(64, 56)
+        setFont(self, 12)
 
-    # 绘制事件
-    def paintEvent(self, e):
+        # 全局主题色
+        self._global_theme_color = (0, 120, 215)  # 默认蓝色
+
+    def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHints(
-            QPainter.RenderHint.Antialiasing
-            | QPainter.RenderHint.TextAntialiasing
-            | QPainter.RenderHint.SmoothPixmapTransform
+            QPainter.Antialiasing
+            | QPainter.TextAntialiasing
+            | QPainter.SmoothPixmapTransform
         )
-        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setPen(Qt.NoPen)
 
-        # 绘制选中按钮样式
-        if self.isSelected and not self.isPressed:
-            painter.setBrush(
-                QColor(214, 75, 84, self.iconAni.opacity)
-            )  # 设置选中背景颜色
-            painter.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 10, 10)
-        elif self.isSelected and self.isPressed:
-            painter.setBrush(QColor(214, 75, 84, 100))  # 设置选中背景颜色
-            painter.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 10, 10)
-        elif self.isPressed:
-            c = 255 if isDarkTheme() else 0
-            painter.setBrush(QColor(c, c, c, 20))  # 设置选中背景颜色
-            painter.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 10, 10)
-        elif self.isEnter:
-            c = 255 if isDarkTheme() else 0
-            painter.setBrush(QColor(c, c, c, 10))
-            painter.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 10, 10)
-        else:
-            c = 255 if isDarkTheme() else 0
-            painter.setBrush(QColor(c, c, c, self.iconAni.opacity))  # 设置默认背景颜色
-            painter.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 10, 10)
+        # 绘制背景
+        bg_color = self._get_bg_color()
+        painter.setBrush(bg_color)
+        painter.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 10, 10)
+
+        # 绘制蓝色短线（选中状态）
+        if self.isSelected:
+            r, g, b = self._global_theme_color
+            painter.setBrush(QColor(r, g, b))  # 使用全局主题色
+            line_rect = QRect(2, 18, 4, 20)  # 左侧短线
+            painter.drawRoundedRect(line_rect, 2, 2)
 
         # 绘制图标
-        rect = QRectF(22, 13, 20, 20)
-        selectedIcon = self._selectedIcon or self._icon
+        icon_color = self._get_icon_color()
+        current_icon = self._selectedIcon if self.isSelected else self._icon
+        # 选中且隐藏文字时居中；否则使用普通位置以便显示文字
+        icon_position = self.icon_rect_centered if (self.isSelected and not self._isSelectedTextVisible) else self.icon_rect
+        current_icon.render(painter, icon_position, fill=icon_color)
 
-        if isinstance(selectedIcon, FluentIconBase) and self.isSelected:
-            selectedIcon.render(painter, rect, fill="#ffffff")
-        elif self.isSelected:
-            selectedIcon.render(painter, rect, fill="#5c6e93")
-        elif isDarkTheme():
-            selectedIcon.render(painter, rect, fill="#b2b2b2")
-        else:
-            selectedIcon.render(painter, rect, fill="#5c6e93")
-
+        # 选中时是否隐藏文字由 _isSelectedTextVisible 决定
         if self.isSelected and not self._isSelectedTextVisible:
             return
 
-        # 绘制文字
-        painter.setPen(
-            QColor(255, 255, 255)
-            if self.isSelected
-            else QColor(178, 178, 178) if isDarkTheme() else QColor(92, 110, 147)
-        )
+        text_color = self._get_text_color()
+        painter.setPen(text_color)
         painter.setFont(self.font())
-        rect = QRect(0, 32, self.width(), 26)
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
+        painter.drawText(self.text_rect, Qt.AlignCenter, self.text())
 
-    def setSelected(self, isSelected: bool):
+    def _get_bg_color(self):
+        """获取自适应主题的背景颜色"""
+        if self.isSelected:
+            return QColor(0, 0, 0, 0)
+
+        # 悬停
+        if self.isEnter:
+            return QColor(128, 128, 128, 25)  # 淡灰色悬停效果
+
+        return QColor(0, 0, 0, 0)  # 默认透明背景
+
+    def _get_icon_color(self):
+        """获取图标颜色(含选中状态处理)"""
+        if not self.isSelected:
+            return self._theme_colors["dark_icon" if isDarkTheme() else "light_icon"]
+
+        icon_type_check = isinstance(self._selectedIcon, FluentIconBase)
+        if icon_type_check:
+            # 使用全局主题色
+            r, g, b = self._global_theme_color
+            return f"rgb({r}, {g}, {b})"
+        else:
+            return self._theme_colors["light_icon"]
+
+    def _get_text_color(self):
+        """获取文本颜色"""
+        if self.isSelected:
+            if isDarkTheme():
+                return QColor(255, 255, 255)
+            else:
+                # 使用全局主题色
+                r, g, b = self._global_theme_color
+                return QColor(r, g, b)
+
+        # 根据主题返回对应颜色
+        return QColor(178, 178, 178) if isDarkTheme() else QColor(92, 110, 147)
+
+    def setSelected(self, isSelected):
+        """更新选中状态"""
         if isSelected == self.isSelected:
             return
-
         self.isSelected = isSelected
 
-        if isSelected:
-            self.iconAni.aniStart()
-        else:
-            self.iconAni.aniStop()
+    def update_global_theme_color(self, color_rgb: tuple):
+        """更新全局主题色"""
+        self._global_theme_color = color_rgb
+        self.update()  # 触发重绘
 
 
 class PhosTitleBar(SplitTitleBar):
@@ -373,7 +334,9 @@ class PhosTitleBar(SplitTitleBar):
         # 添加窗口图标
         self.iconLabel = QLabel(self)
         self.iconLabel.setFixedSize(18, 18)
-        layout.addWidget(self.iconLabel, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(
+            self.iconLabel, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
 
         self.window().windowIconChanged.connect(self.setIcon)
 
@@ -384,14 +347,18 @@ class PhosTitleBar(SplitTitleBar):
 
         # 添加窗口标题
         self.titleLabel = QLabel(self)
-        layout.addWidget(self.titleLabel, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(
+            self.titleLabel, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
         self.titleLabel.setObjectName("titleLabel")
 
         self.window().windowTitleChanged.connect(self.setTitle)
 
         # 扩展空白项
         layout.addSpacerItem(
-            QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            QSpacerItem(
+                40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+            )
         )
 
         # 将新创建的布局插入到标题栏的主布局中
@@ -400,21 +367,41 @@ class PhosTitleBar(SplitTitleBar):
         Qlayout = QHBoxLayout()
         Qlayout.setContentsMargins(8, 10, 0, 0)
 
-        self.versionButton = QPushButton("ⓘ 代码版本 未知")
-        self.versionButton.setObjectName("versionButton")
-        self.versionButton.clicked.connect(self.copy_version)
-        Qlayout.addWidget(self.versionButton, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.launcherVersionButton = QPushButton("ⓘ 启动器版本 未知")
+        self.launcherVersionButton.setObjectName("launcherVersionButton")
+        self.launcherVersionButton.clicked.connect(lambda: self.copy_version(self.launcher_version))
+        self.launcherVersionButton.setVisible(False)
+        Qlayout.addWidget(
+            self.launcherVersionButton,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+        )
+
+        self.codeVersionButton = QPushButton("ⓘ 代码版本 未知")
+        self.codeVersionButton.setObjectName("codeVersionButton")
+        self.codeVersionButton.clicked.connect(lambda: self.copy_version(self.code_version))
+        self.codeVersionButton.setVisible(False)
+        Qlayout.addWidget(
+            self.codeVersionButton,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+        )
 
         self.questionButton = QPushButton("ⓘ 问题反馈")
         self.questionButton.setObjectName("questionButton")
         self.questionButton.clicked.connect(self.open_github)
-        Qlayout.addWidget(self.questionButton, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        Qlayout.addWidget(
+            self.questionButton,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+        )
 
         # 将新创建的布局插入到标题栏的主布局中
         self.hBoxLayout.insertLayout(2, Qlayout)
 
         self.issue_url: str = ""
-        self.version: str = ""
+        self.launcher_version: str = ""
+        self.code_version: str = ""
 
     def setIcon(self, icon: QIcon):
         self.iconLabel.setPixmap(icon.pixmap(18, 18))
@@ -422,33 +409,82 @@ class PhosTitleBar(SplitTitleBar):
     def setTitle(self, title: str):
         self.titleLabel.setText(title)
 
+    def setLauncherVersion(self, version: str) -> None:
+        """
+        设置启动器版本号 会更新UI
+        @param version: 版本号
+        @return:
+        """
+        self.launcher_version = version
+        self.launcherVersionButton.setText(f"ⓘ 启动器版本 {version}")
+        if version:
+            self.launcherVersionButton.setVisible(True)
+
+    def setCodeVersion(self, version: str) -> None:
+        """
+        设置代码版本号 会更新UI
+        @param version: 版本号
+        @return:
+        """
+        self.code_version = version
+        self.codeVersionButton.setText(f"ⓘ 代码版本 {version}")
+        if version:
+            self.codeVersionButton.setVisible(True)
+
+    def setInstallerVersion(self, version: str) -> None:
+        """
+        设置安装器版本号 会更新UI
+        @param version: 版本号
+        @return:
+        """
+        self.launcher_version = version
+        self.launcherVersionButton.setText(f"ⓘ 安装器版本 {version}")
+        if version:
+            self.launcherVersionButton.setVisible(True)
+
     def setVersion(self, version: str) -> None:
         """
         设置版本号 会更新UI
         @param version: 版本号
         @return:
         """
-        self.version = version
-        self.versionButton.setText(f'ⓘ 代码版本 {version}')
+        self.launcher_version = version
+        self.launcherVersionButton.setText(f"ⓘ 程序版本 {version}")
+        if version:
+            self.launcherVersionButton.setVisible(True)
 
     # 定义打开GitHub网页的函数
     def open_github(self):
         url = QUrl(self.issue_url)
         QDesktopServices.openUrl(url)
 
-    def copy_version(self):
+    def copy_version(self, text: str):
         """
         将版本号复制到粘贴板
         @return:
         """
         clipboard = QApplication.clipboard()
-        clipboard.setText(self.version)
+        clipboard.setText(text)
         InfoBar.success(
-            title='已复制版本号',
-            content='',
+            title="已复制版本号",
+            content="",
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP_RIGHT,
             duration=2000,
             parent=self.window(),
         ).setCustomBackgroundColor("white", "#202020")
+
+
+class PhosStackedWidget(StackedWidget):
+    """Stacked widget"""
+
+    currentChanged = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+
+    def setCurrentWidget(self, widget, popOut=True):
+        if isinstance(widget, QAbstractScrollArea):
+            widget.verticalScrollBar().setValue(0)
+        self.view.setCurrentWidget(widget, duration=0)

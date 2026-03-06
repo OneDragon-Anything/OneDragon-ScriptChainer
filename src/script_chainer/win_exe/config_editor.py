@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import NavigationItemPosition, setTheme, Theme
+from qfluentwidgets import NavigationItemPosition, Theme, setTheme
 
 from one_dragon.version import __version__
 from one_dragon_qt.services.styles_manager import OdQtStyleSheet
@@ -43,7 +43,6 @@ class AppWindow(AppWindowBase):
         self.navigationInterface.setContentsMargins(0, 0, 0, 0)
 
         # 配置样式
-        OdQtStyleSheet.APP_WINDOW.apply(self)
         OdQtStyleSheet.NAVIGATION_INTERFACE.apply(self.navigationInterface)
         OdQtStyleSheet.STACKED_WIDGET.apply(self.stackedWidget)
         OdQtStyleSheet.AREA_WIDGET.apply(self.areaWidget)
@@ -73,6 +72,7 @@ class AppWindow(AppWindowBase):
 
 def __run():
     ctx = ScriptChainerContext()
+    ctx.init()
     setTheme(Theme[ctx.custom_config.theme.upper()], lazy=True)
     app = QApplication([])
     window = AppWindow(ctx)
