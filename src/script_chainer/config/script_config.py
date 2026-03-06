@@ -134,10 +134,7 @@ class ScriptChainConfig(YamlConfig):
         self.init_idx()
 
     def init_idx(self) -> None:
-        """
-        初始化下标
-        :return:
-        """
+        """初始化下标"""
         for i in range(len(self.script_list)):
             self.script_list[i].idx = i
 
@@ -162,9 +159,10 @@ class ScriptChainConfig(YamlConfig):
         YamlConfig.save(self)
 
     def add_one(self) -> ScriptConfig:
-        """
-        新增一个配置 并返回
-        :return:
+        """新增一个配置并返回。
+
+        Returns:
+            新创建的 ScriptConfig。
         """
         new_config = ScriptConfig(
             script_path='',
@@ -184,10 +182,10 @@ class ScriptChainConfig(YamlConfig):
         return new_config
 
     def delete_one(self, index: int) -> None:
-        """
-        删除一个配置
-        :param index:
-        :return:
+        """删除一个配置。
+
+        Args:
+            index: 配置下标。
         """
         if index < 0 or index >= len(self.script_list):
             return
@@ -196,10 +194,10 @@ class ScriptChainConfig(YamlConfig):
         self.save()
 
     def move_up(self, index: int) -> None:
-        """
-        向上移动一个配置
-        :param index:
-        :return:
+        """向上移动一个配置。
+
+        Args:
+            index: 配置下标。
         """
         if index <= 0 or index >= len(self.script_list):
             return
@@ -208,10 +206,10 @@ class ScriptChainConfig(YamlConfig):
         self.save()
 
     def reorder(self, new_order: list[ScriptConfig]) -> None:
-        """
-        按新顺序重排脚本列表（用于拖拽排序）
-        :param new_order: 新顺序的脚本列表
-        :return:
+        """按新顺序重排脚本列表（用于拖拽排序）。
+
+        Args:
+            new_order: 新顺序的脚本列表。
         """
         if len(new_order) != len(self.script_list):
             return
@@ -220,10 +218,10 @@ class ScriptChainConfig(YamlConfig):
         self.save()
 
     def update_config(self, config: ScriptConfig) -> None:
-        """
-        更新一个配置
-        :param config:
-        :return:
+        """更新一个配置。
+
+        Args:
+            config: 要更新的脚本配置。
         """
         if config.idx < 0 or config.idx >= len(self.script_list):
             return

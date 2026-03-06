@@ -23,9 +23,7 @@ class LauncherBase:
 
     def add_common_arguments(self, parser: argparse.ArgumentParser) -> None:
         """添加通用参数"""
-        parser.add_argument("-c", "--close-game", action="store_true", help="运行后关闭游戏")
         parser.add_argument("-s", "--shutdown", type=int, nargs='?', const=60, help="运行后关机，可指定延迟秒数，默认60秒")
-        parser.add_argument("-i", "--instance", type=str, help="指定运行的账号实例，多个用英文逗号分隔，如：1,2")
 
     def run(self) -> None:
         """运行启动器"""

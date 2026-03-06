@@ -50,9 +50,10 @@ class ScriptChainerContext:
         return os_utils.get_path_under_work_dir('config', 'script_chain')
 
     def add_script_chain_config(self) -> ScriptChainConfig:
-        """
-        新增一个脚本链配置 并返回
-        :return:
+        """新增一个脚本链配置并返回。
+
+        Returns:
+            新创建的 ScriptChainConfig。
         """
         config_dir = self.script_chain_config_dir()
         for i in range(1, 100):
@@ -65,21 +66,27 @@ class ScriptChainerContext:
                 return config
 
     def remove_script_chain_config(self, config: ScriptChainConfig) -> None:
-        """
-        删除脚本链配置
-        :param config:
-        :return:
+        """删除脚本链配置。
+
+        Args:
+            config: 要删除的配置。
         """
         file_path = os.path.join(self.script_chain_config_dir(), f'{config.module_name}.yml')
         if os.path.exists(file_path):
             os.remove(file_path)
 
     def rename_script_chain_config(self, old_config: ScriptChainConfig, new_module_name: str) -> ScriptChainConfig:
-        """
-        重命名脚本链配置
-        :param old_config: 原配置
-        :param new_module_name: 新的模块名称
-        :return: 新的配置对象
+        """重命名脚本链配置。
+
+        Args:
+            old_config: 原配置。
+            new_module_name: 新的模块名称。
+
+        Returns:
+            新的配置对象。
+
+        Raises:
+            ValueError: 当新名称已存在时。
         """
         config_dir = self.script_chain_config_dir()
         old_file_path = os.path.join(config_dir, f'{old_config.module_name}.yml')
