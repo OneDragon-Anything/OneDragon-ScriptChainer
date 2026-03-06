@@ -1,18 +1,10 @@
 import os
+import urllib.parse
 from enum import Enum
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.base.config.yaml_config import YamlConfig
 from one_dragon.utils import os_utils
-
-DEFAULT_ENV_PATH = os_utils.get_path_under_work_dir('.env')
-DEFAULT_GIT_DIR_PATH = os.path.join(DEFAULT_ENV_PATH, 'PortableGit')  # 默认的git文件夹路径
-DEFAULT_GIT_PATH = os.path.join(DEFAULT_GIT_DIR_PATH, 'cmd', 'git.exe')  # 默认的git.exe文件路径
-DEFAULT_PYTHON_DIR_PATH = os.path.join(DEFAULT_ENV_PATH, 'python')  # 默认的python文件夹路径
-DEFAULT_PYTHON_PATH = os.path.join(DEFAULT_PYTHON_DIR_PATH, 'python.exe')  # 默认安装的python路径
-DEFAULT_VENV_DIR_PATH = os.path.join(DEFAULT_ENV_PATH, 'venv')  # 默认的虚拟环境文件夹路径
-DEFAULT_VENV_PYTHON_PATH = os.path.join(DEFAULT_VENV_DIR_PATH, 'scripts', 'python.exe')  # 默认的虚拟环境中python.exe的路径
-DEFAULT_PYTHON_PTH_PATH = os.path.join(DEFAULT_PYTHON_DIR_PATH, 'python311._pth')  # 默认安装的python配置文件路径
 
 GH_PROXY_URL = 'https://ghfast.top'  # 免费代理的路径
 
@@ -20,18 +12,20 @@ class ProxyTypeEnum(Enum):
 
     NONE = ConfigItem('无', 'None')
     PERSONAL = ConfigItem('个人代理', 'personal')
-    GHPROXY = ConfigItem('Github免费代理', 'ghproxy')
+    GHPROXY = ConfigItem('GitHub 代理', 'ghproxy')
+
 
 class RepositoryTypeEnum(Enum):
 
-    GITHUB = ConfigItem('Github')
+    GITHUB = ConfigItem('GitHub')
     GITEE = ConfigItem('Gitee')
 
 
-class GitMethodEnum(Enum):
+class RegionEnum(Enum):
 
-    HTTPS = ConfigItem('https')
-    SSH = ConfigItem('ssh')
+    CHINA_GITEE = ConfigItem('中国 - Gitee', 'china_gitee')
+    CHINA_GHPROXY = ConfigItem('中国 - GitHub 代理', 'china_ghproxy')
+    OVERSEA = ConfigItem('海外', 'oversea')
 
 
 class PipSourceEnum(Enum):
@@ -40,27 +34,57 @@ class PipSourceEnum(Enum):
     TSING_HUA = ConfigItem('清华大学', 'https://pypi.tuna.tsinghua.edu.cn/simple')
     ALIBABA = ConfigItem('阿里云', 'https://mirrors.aliyun.com/pypi/simple')
 
+class GitRemoteEnum(Enum):
+
+    ORIGIN = ConfigItem('origin')
+    UPSTREAM = ConfigItem('upstream')
+
+
+class GitBranchEnum(Enum):
+
+    MAIN = ConfigItem('主分支', 'main', desc='选择后请点击同步最新代码')
+    TEST = ConfigItem('测试分支', 'test', desc='选择后请点击同步最新代码')
+
+
+class CpythonSourceEnum(Enum):
+
+    GITHUB = ConfigItem('GitHub', 'https://github.com/astral-sh/python-build-standalone/releases/download')
+    GITEE = ConfigItem('Gitee', 'https://gitee.com/OneDragon-Anything/python-build-standalone/releases/download')
+
+
+class EnvSourceEnum(Enum):
+
+    GITHUB = ConfigItem('GitHub', 'https://github.com/OneDragon-Anything/OneDragon-Env/releases/download')
+    GITEE = ConfigItem('Gitee', 'https://gitee.com/OneDragon-Anything/OneDragon-Env/releases/download')
+
+
+class ScreenshotMethodEnum(Enum):
+
+    AUTO = ConfigItem('自动', 'auto')
+    PRINT_WINDOW = ConfigItem('Print Window', 'print_window')
+    BITBLT = ConfigItem('BitBlt', 'bitblt')
+    MSS = ConfigItem('MSS', 'mss')
+    PIL = ConfigItem('PIL', 'pil')
+
 
 class EnvConfig(YamlConfig):
 
     def __init__(self):
-        super().__init__(module_name='env')
+        YamlConfig.__init__(self, module_name='env')
 
     @property
-    def git_path(self) -> str:
+    def uv_path(self) -> str:
         """
-        :return: git的路径
+        uv的路径
         """
-        return self.get('git_path', '')
+        return self.get('uv_path', '')
 
-    @git_path.setter
-    def git_path(self, new_value: str) -> None:
+    @uv_path.setter
+    def uv_path(self, new_value: str) -> None:
         """
-        更新 git的路径 正常不需要调用
-        :param new_value:
-        :return:
+        更新uv的路径
         """
-        self.update('git_path', new_value)
+        self.update('uv_path', new_value)
 
     @property
     def python_path(self) -> str:
@@ -127,25 +151,9 @@ class EnvConfig(YamlConfig):
         self.update('personal_proxy', new_value)
 
     @property
-    def requirement_time(self) -> str:
-        """
-        安装依赖时 使用的 requirement.txt 的最后修改时间
-        :return:
-        """
-        return self.get('requirement_time', '')
-
-    @requirement_time.setter
-    def requirement_time(self, new_value: str) -> None:
-        """
-        安装依赖时 使用的 requirement.txt 的最后修改时间
-        :return:
-        """
-        self.update('requirement_time', new_value)
-
-    @property
     def repository_type(self) -> str:
         """
-        仓库类型 Github / Gitee
+        仓库类型 GitHub / Gitee
         :return:
         """
         return self.get('repository_type', RepositoryTypeEnum.GITEE.value.value)
@@ -153,22 +161,10 @@ class EnvConfig(YamlConfig):
     @repository_type.setter
     def repository_type(self, new_value: str) -> None:
         """
-        仓库类型 Github / Gitee
+        仓库类型 GitHub / Gitee
         :return:
         """
         self.update('repository_type', new_value)
-
-    @property
-    def git_method(self) -> str:
-        """
-        git使用https还是ssh
-        :return:
-        """
-        return self.get('git_method', GitMethodEnum.HTTPS.value.value)
-
-    @git_method.setter
-    def git_method(self, new_value: str) -> None:
-        self.update('git_method', new_value)
 
     @property
     def force_update(self) -> bool:
@@ -199,12 +195,28 @@ class EnvConfig(YamlConfig):
         self.update('auto_update', new_value)
 
     @property
+    def cpython_source(self) -> str:
+        """
+        cpython-build-standalone 源
+        :return:
+        """
+        return self.get('cpython_source', CpythonSourceEnum.GITEE.value.value)
+
+    @cpython_source.setter
+    def cpython_source(self, new_value: str) -> None:
+        """
+        cpython-build-standalone 源
+        :return:
+        """
+        self.update('cpython_source', new_value)
+
+    @property
     def pip_source(self) -> str:
         """
         pip源
         :return:
         """
-        return self.get('pip_source', PipSourceEnum.TSING_HUA.value.value)
+        return self.get('pip_source', PipSourceEnum.ALIBABA.value.value)
 
     @pip_source.setter
     def pip_source(self, new_value: str) -> None:
@@ -213,6 +225,78 @@ class EnvConfig(YamlConfig):
         :return:
         """
         self.update('pip_source', new_value)
+
+    @property
+    def env_source(self) -> str:
+        """
+        环境下载源
+        :return:
+        """
+        return self.get('env_source', EnvSourceEnum.GITEE.value.value)
+
+    @env_source.setter
+    def env_source(self, new_value: str) -> None:
+        """
+        环境下载源
+        :return:
+        """
+        self.update('env_source', new_value)
+
+    @property
+    def pip_trusted_host(self) -> str:
+        """
+        pip源的可信主机
+        :return:
+        """
+        return urllib.parse.urlparse(self.pip_source).netloc
+
+    @property
+    def git_remote(self) -> str:
+        """
+        远程
+        :return:
+        """
+        return self.get('git_remote', GitRemoteEnum.ORIGIN.value.value)
+
+    @git_remote.setter
+    def git_remote(self, new_value: str) -> None:
+        """
+        远程
+        :return:
+        """
+        self.update('git_remote', new_value)
+
+    @property
+    def git_branch(self) -> str:
+        """
+        分支
+        :return:
+        """
+        return self.get('git_branch', GitBranchEnum.MAIN.value.value)
+
+    @git_branch.setter
+    def git_branch(self, new_value: str) -> None:
+        """
+        分支
+        :return:
+        """
+        self.update('git_branch', new_value)
+
+    @property
+    def custom_git_branch(self) -> bool:
+        """
+        分支
+        :return:
+        """
+        return self.get('custom_git_branch', False)
+
+    @custom_git_branch.setter
+    def custom_git_branch(self, new_value: bool) -> None:
+        """
+        分支
+        :return:
+        """
+        self.update('custom_git_branch', new_value)
 
     @property
     def gh_proxy_url(self) -> str:
@@ -267,6 +351,33 @@ class EnvConfig(YamlConfig):
         :return:
         """
         self.update('is_debug', new_value)
+
+    @property
+    def copy_screenshot(self) -> bool:
+        """
+        截图后是否复制到剪贴板
+        :return:
+        """
+        return self.get('copy_screenshot', True)
+
+    @copy_screenshot.setter
+    def copy_screenshot(self, new_value: bool) -> None:
+        """
+        截图后是否复制到剪贴板
+        :return:
+        """
+        self.update('copy_screenshot', new_value)
+
+    @property
+    def screenshot_method(self) -> str:
+        """
+        截图方法
+        """
+        return self.get('screenshot_method', ScreenshotMethodEnum.AUTO.value.value)
+
+    @screenshot_method.setter
+    def screenshot_method(self, new_value: str) -> None:
+        self.update('screenshot_method', new_value)
 
     @property
     def key_start_running(self) -> str:
@@ -327,3 +438,28 @@ class EnvConfig(YamlConfig):
         :return:
         """
         self.update('key_debug', new_value)
+
+    @property
+    def is_first_run(self) -> bool:
+        """
+        是否第一次运行
+        """
+        return self.get('is_first_run', True)
+
+    @is_first_run.setter
+    def is_first_run(self, new_value: bool) -> None:
+        """
+        是否第一次运行
+        """
+        self.update('is_first_run', new_value)
+
+    def init_system_proxy(self):
+        """
+        初始化系统代理设置
+        """
+        if self.is_personal_proxy:
+            os.environ['HTTP_PROXY'] = self.personal_proxy
+            os.environ['HTTPS_PROXY'] = self.personal_proxy
+        else:
+            os.environ['HTTP_PROXY'] = ""
+            os.environ['HTTPS_PROXY'] = ""

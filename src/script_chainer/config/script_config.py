@@ -207,6 +207,18 @@ class ScriptChainConfig(YamlConfig):
         self.init_idx()
         self.save()
 
+    def reorder(self, new_order: list[ScriptConfig]) -> None:
+        """
+        按新顺序重排脚本列表（用于拖拽排序）
+        :param new_order: 新顺序的脚本列表
+        :return:
+        """
+        if len(new_order) != len(self.script_list):
+            return
+        self.script_list = list(new_order)
+        self.init_idx()
+        self.save()
+
     def update_config(self, config: ScriptConfig) -> None:
         """
         更新一个配置
