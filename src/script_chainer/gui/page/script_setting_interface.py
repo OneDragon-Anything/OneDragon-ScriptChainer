@@ -63,6 +63,7 @@ class ScriptEditDialog(MessageBoxBase):
             input_placeholder='选择或输入脚本进程名',
         )
         self.script_process_name_opt.combo_box.setFixedWidth(320)
+        self.script_process_name_opt.value_changed.connect(self._on_script_process_selected)
         self.viewLayout.addWidget(self.script_process_name_opt)
 
         self.game_process_name_opt = EditableComboBoxSettingCard(
@@ -73,6 +74,7 @@ class ScriptEditDialog(MessageBoxBase):
             input_placeholder='选择或输入游戏进程名',
         )
         self.game_process_name_opt.combo_box.setFixedWidth(320)
+        self.game_process_name_opt.value_changed.connect(self._on_game_process_selected)
         self.viewLayout.addWidget(self.game_process_name_opt)
 
         self.run_timeout_seconds_opt = TextSettingCard(
@@ -171,6 +173,16 @@ class ScriptEditDialog(MessageBoxBase):
             card.combo_box.setCurrentIndex(-1)
             card.combo_box.setText(value if value else '')
         card.combo_box.blockSignals(False)
+
+    def _on_script_process_selected(self, _idx: int, val: object) -> None:
+        """脚本进程选中后，显示 value 并恢复 content"""
+        self.script_process_name_opt.combo_box.setText(str(val) if val else '')
+        self.script_process_name_opt.setContent('需要监听脚本关闭时填入')
+
+    def _on_game_process_selected(self, _idx: int, val: object) -> None:
+        """游戏进程选中后，显示 value 并恢复 content"""
+        self.game_process_name_opt.combo_box.setText(str(val) if val else '')
+        self.game_process_name_opt.setContent('需要监听游戏关闭时填入')
 
     def on_script_path_clicked(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, gt('选择你的脚本'))
