@@ -63,6 +63,7 @@ class ScriptChainerContext:
                 config = ScriptChainConfig(module_name=module_name)
                 config.save()
                 return config
+        raise RuntimeError('脚本链数量已达上限(99)')
 
     def remove_script_chain_config(self, config: ScriptChainConfig) -> None:
         """
