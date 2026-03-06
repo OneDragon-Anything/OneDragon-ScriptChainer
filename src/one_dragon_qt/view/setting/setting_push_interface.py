@@ -105,6 +105,7 @@ class SettingPushInterface(VerticalScrollInterface):
 
         channel_group = ExpandSettingCardGroup(icon=FluentIcon.MESSAGE, title='通知方式')
         channel_group.addHeaderWidget(self.notification_method_opt.combo_box)
+        channel_group.setExpand(True)
         content_widget.add_widget(channel_group)
 
         # 预创建特殊卡片（稍后按渠道分配）
