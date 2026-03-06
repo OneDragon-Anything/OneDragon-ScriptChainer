@@ -26,10 +26,6 @@ class ExeLauncher(LauncherBase):
     def build_launch_args(self, args) -> list[str]:
         """构建启动参数列表"""
         launch_args = []
-        if args.instance:
-            launch_args.extend(["--instance", args.instance])
-        if args.close_game:
-            launch_args.append("--close-game")
         if args.shutdown:
             launch_args.extend(["--shutdown", str(args.shutdown)])
 
@@ -48,8 +44,8 @@ class ExeLauncher(LauncherBase):
         if args.version:
             self.show_version()
 
-        if not args.onedragon and (args.close_game or args.shutdown or args.instance):
-            print("错误：参数 --close-game, --shutdown, --instance 只能在指定 --onedragon 时使用")
+        if not args.onedragon and args.shutdown:
+            print("错误：参数 --shutdown 只能在指定 --onedragon 时使用")
             sys.exit(1)
 
         if not pyuac.isUserAdmin():
