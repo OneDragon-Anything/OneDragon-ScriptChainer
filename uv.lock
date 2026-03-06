@@ -250,9 +250,9 @@ requires-dist = [
     { name = "pyinstaller", specifier = "==6.7.0" },
     { name = "pynput", specifier = "==1.8.1" },
     { name = "pyside6", specifier = "==6.8.0.2" },
-    { name = "pyside6-fluent-widgets", specifier = "==1.7.0" },
+    { name = "pyside6-fluent-widgets", specifier = "==1.11.1" },
     { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "requests", specifier = "==2.32.3" },
+    { name = "requests", specifier = "==2.32.4" },
     { name = "ruff", specifier = ">=0.15.5" },
 ]
 
@@ -3206,16 +3206,16 @@ wheels = [
 
 [[package]]
 name = "pyside6-fluent-widgets"
-version = "1.7.0"
+version = "1.11.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "darkdetect" },
     { name = "pyside6" },
     { name = "pysidesix-frameless-window" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8f/a0/64e753ca2453eb55a9bcc374f09a684c2c8aee96d09e82697bbb0a11710e/pyside6_fluent_widgets-1.7.0.tar.gz", hash = "sha256:decada3f2cae1bc7314fccd9db98be2e65b67a322813267602dde15722c5e253", size = 1429816, upload-time = "2024-10-20T05:49:25.427Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/5f/da3f4f4b89cde08fa8f945d96b5f8b16203bcdab41b583538e24c30804ed/pyside6_fluent_widgets-1.11.1.tar.gz", hash = "sha256:8da3b1bb1a888e760c33d1b964653f8308ba512da8243d4abbe6e93623eac269", size = 1456786, upload-time = "2026-02-07T08:41:29.075Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/41/81/0e134b913466a66724823fff66cca11b8f0905c78824a927a2e8d36c7d45/PySide6_Fluent_Widgets-1.7.0-py3-none-any.whl", hash = "sha256:caa2f7fdaf9213c3a42a4d6308114839614560b31683bf557c0809f8c3b3fa7b", size = 1521504, upload-time = "2024-10-20T05:49:21.185Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/94/528a7e7d2fbb6c464a4f31d16c234e6799ca5d95400a0ef7a1a9548362fa/pyside6_fluent_widgets-1.11.1-py3-none-any.whl", hash = "sha256:72655744b41cea212a6ea32d1457e9acfc17d50d41d3780dc67ad4fa36ba7ac4", size = 1550257, upload-time = "2026-02-07T08:41:26.425Z" },
 ]
 
 [[package]]
@@ -3309,7 +3309,7 @@ wheels = [
 
 [[package]]
 name = "requests"
-version = "2.32.3"
+version = "2.32.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -3317,9 +3317,9 @@ dependencies = [
     { name = "idna" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/70/2bf7780ad2d390a8d301ad0b550f1581eadbd9a20f896afe06353c2a2913/requests-2.32.3.tar.gz", hash = "sha256:55365417734eb18255590a9ff9eb97e9e1da868d4ccd6402399eaf68af20a760", size = 131218, upload-time = "2024-05-29T15:37:49.536Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/0a/929373653770d8a0d7ea76c37de6e41f11eb07559b103b1c02cafb3f7cf8/requests-2.32.4.tar.gz", hash = "sha256:27d0316682c8a29834d3264820024b62a36942083d52caf2f14c0591336d3422", size = 135258, upload-time = "2025-06-09T16:43:07.34Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/9b/335f9764261e915ed497fcdeb11df5dfd6f7bf257d4a6a2a686d80da4d54/requests-2.32.3-py3-none-any.whl", hash = "sha256:70761cfe03c773ceb22aa2f671b4757976145175cdfca038c02654d061d6dcc6", size = 64928, upload-time = "2024-05-29T15:37:47.027Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/e4/56027c4a6b4ae70ca9de302488c5ca95ad4a39e190093d6c1a8ace08341b/requests-2.32.4-py3-none-any.whl", hash = "sha256:27babd3cda2a6d50b30443204ee89830707d396671944c998b5975b031ac2b2c", size = 64847, upload-time = "2025-06-09T16:43:05.728Z" },
 ]
 
 [[package]]
