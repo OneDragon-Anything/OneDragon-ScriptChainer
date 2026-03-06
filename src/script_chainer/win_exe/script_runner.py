@@ -292,13 +292,18 @@ def run_script(script_config: ScriptConfig) -> None:
     _active_pm = None
 
 
-def _on_exit_signal(signum, frame):
-    """控制台关闭/Ctrl+C 时清理子进程。"""
+def _cleanup_active_pm():
+    """清理当前活跃的 ProcessManager 子进程。"""
     global _active_pm
     if _active_pm is not None:
         with suppress(Exception):
             _active_pm.kill()
         _active_pm = None
+
+
+def _on_exit_signal(signum, frame):
+    """控制台关闭/Ctrl+C 时清理子进程并退出。"""
+    _cleanup_active_pm()
     sys.exit(1)
 
 
@@ -314,7 +319,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
     signal.signal(signal.SIGTERM, _on_exit_signal)
     if sys.platform == 'win32':
         signal.signal(signal.SIGBREAK, _on_exit_signal)
-    atexit.register(lambda: _on_exit_signal(None, None))
+    atexit.register(_cleanup_active_pm)
 
     init(autoreset=True)
     chain_config: ScriptChainConfig = ScriptChainConfig(chain_name)
