@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['..\\src\\script_chainer\\win_exe\\config_editor.py'],
+    ['..\\src\\script_chainer\\win_exe\\launcher.py'],
     pathex=[],
     binaries=[],
     datas=[('../config/project.yml', 'config')],
@@ -22,14 +22,14 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='OneDragon ScriptChainer Editor',
+    name='OneDragon ScriptChainer',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

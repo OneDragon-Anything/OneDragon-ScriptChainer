@@ -12,9 +12,10 @@ dependencies = [
     "pynput==1.8.1",
     "pyside6==6.8.0.2",
     "pyside6-fluent-widgets==1.7.0",
+    "pyuac==0.0.3",
     "pyyaml==6.0.2",
     "requests==2.32.3",
-    "ruff>=0.15.5",
+    "ruff==0.15.5",
 ]
 
 # Ruff configuration

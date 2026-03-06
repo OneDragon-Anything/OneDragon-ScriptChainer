@@ -14,7 +14,7 @@ class CheckDoneMethods(Enum):
 
 class ScriptProcessName(Enum):
 
-    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='pythonw.exe')
+    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='python.exe')
     BGI = ConfigItem(label='BetterGI', value='BetterGI.exe')
     March7th = ConfigItem(label='三月七小助手', value='March7th Assistant.exe')
     MAA_BBB = ConfigItem(label='识宝小助手', value='MFAAvalonia.exe')

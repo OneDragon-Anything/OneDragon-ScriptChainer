@@ -70,7 +70,7 @@ class AppWindow(AppWindowBase):
         )
 
 
-def __run():
+def run_editor():
     ctx = ScriptChainerContext()
     ctx.init()
     setTheme(Theme[ctx.custom_config.theme.upper()], lazy=True)
@@ -83,4 +83,4 @@ def __run():
 
 
 if __name__ == "__main__":
-    __run()
+    run_editor()
