@@ -170,6 +170,17 @@ class ProcessManager:
             return self.process.pid
         return None
 
+    @property
+    def main_name(self) -> str | None:
+        """获取被管理的主进程名称。"""
+        if self.target_process is not None:
+            with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                return self.target_process.name()
+        if self.process is not None:
+            with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                return psutil.Process(self.process.pid).name()
+        return None
+
     def open_process(
         self,
         program: str,
@@ -190,7 +201,10 @@ class ProcessManager:
         Returns:
             是否成功启动并追踪到进程。
         """
-        self.clear()
+        if self.is_running():
+            self.kill()
+        else:
+            self.clear()
 
         command = [program]
         if args:
@@ -222,6 +236,8 @@ class ProcessManager:
     ) -> bool:
         """搜索并追踪目标进程。
 
+        优先从已启动子进程的进程树中搜索，找不到时再进行全局搜索。
+
         Args:
             target: 目标进程信息。
             timeout: 超时时间（秒）。
@@ -232,12 +248,37 @@ class ProcessManager:
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
-            proc = find_process_by_info(target)
-            if proc is not None:
-                self.target_process = proc
+            # 优先从已启动进程的子进程树中搜索
+            found = self._search_in_children(target)
+            if found is None:
+                # fallback: 全局搜索
+                found = find_process_by_info(target)
+            if found is not None:
+                self.target_process = found
                 return True
             time.sleep(poll_interval)
         return False
+
+    def _search_in_children(self, target: ProcessInfo) -> psutil.Process | None:
+        """从已启动子进程的后代中搜索匹配的目标进程。
+
+        Args:
+            target: 目标进程匹配条件。
+
+        Returns:
+            匹配的进程对象，未找到返回 None。
+        """
+        if self.process is None:
+            return None
+        try:
+            parent = psutil.Process(self.process.pid)
+            for child in parent.children(recursive=True):
+                with suppress(psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    if match_process(child, target):
+                        return child
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        return None
 
     def is_running(self) -> bool:
         """检查被管理的进程是否仍在运行。"""

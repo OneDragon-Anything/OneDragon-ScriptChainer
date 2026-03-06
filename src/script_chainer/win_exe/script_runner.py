@@ -3,6 +3,7 @@ import atexit
 import datetime
 import logging
 import os
+import shlex
 import signal
 import sys
 import time
@@ -21,6 +22,7 @@ from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.services.process_manager import (
     ProcessInfo,
     ProcessManager,
+    find_process_by_info,
     is_process_existed,
 )
 
@@ -83,7 +85,7 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
     # 解析启动参数
     args_list = None
     if script_config.script_arguments and script_config.script_arguments.strip():
-        args_list = script_config.script_arguments.split()
+        args_list = shlex.split(script_config.script_arguments, posix=False)
 
     # 如果配置了脚本进程名称，则追踪目标进程（launcher 场景）
     target = None
@@ -155,12 +157,11 @@ def _wait_for_subprocess_ready(pm: ProcessManager, script_path: str, timeout: fl
     return False
 
 
-def _monitor_script_done(script_config: ScriptConfig, pm: ProcessManager) -> None:
+def _monitor_script_done(script_config: ScriptConfig) -> None:
     """监控脚本运行状态，等待完成条件满足。
 
     Args:
         script_config: 脚本配置。
-        pm: ProcessManager 实例。
     """
     start_time = time.time()
     script_ever_existed: bool = False
@@ -235,18 +236,27 @@ def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
         pm: ProcessManager 实例。
     """
     if script_config.kill_script_after_done:
-        print_message(f'尝试关闭脚本进程 {script_config.script_process_name}')
+        print_message(f'尝试关闭脚本进程 {pm.main_name} (pid={pm.main_pid})')
         try:
             pm.kill()
         except Exception:
             log.error('通过 ProcessManager 关闭脚本进程失败', exc_info=True)
 
     if script_config.kill_game_after_done:
-        print_message(f'尝试关闭游戏进程 {script_config.game_process_name}')
-        try:
-            pm.kill()
-        except Exception:
-            log.error('关闭游戏进程失败', exc_info=True)
+        game_name = script_config.game_process_name
+        if game_name:
+            print_message(f'尝试关闭游戏进程 {game_name}')
+            try:
+                proc = find_process_by_info(ProcessInfo(name=game_name))
+                if proc is not None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:
+                        with suppress(Exception):
+                            proc.kill()
+            except Exception:
+                log.error('关闭游戏进程失败', exc_info=True)
 
 
 def run_script(script_config: ScriptConfig) -> None:
@@ -285,7 +295,7 @@ def run_script(script_config: ScriptConfig) -> None:
     print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
 
     # 3. 监控脚本运行状态
-    _monitor_script_done(script_config, pm)
+    _monitor_script_done(script_config)
 
     # 4. 清理进程
     _cleanup_processes(script_config, pm)
