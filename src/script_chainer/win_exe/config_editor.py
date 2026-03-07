@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import NavigationItemPosition, Theme, setTheme
 
@@ -75,6 +76,7 @@ def run_editor():
     ctx.init()
     setTheme(Theme[ctx.custom_config.theme.upper()], lazy=True)
     app = QApplication([])
+    app.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
     window = AppWindow(ctx)
     window.show()
     window.activateWindow()
