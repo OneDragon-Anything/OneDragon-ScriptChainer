@@ -96,9 +96,7 @@ jobs:
     - name: Create virtual environment and install dependencies
       shell: pwsh
       run: |
-        uv venv .venv --python=3.11.9
-        uv pip install -r requirements-dev.txt
-        uv pip install -r requirements-dev-ext.txt
+        uv sync
 
     - name: Download and extract UPX into venv Scripts
       shell: pwsh
