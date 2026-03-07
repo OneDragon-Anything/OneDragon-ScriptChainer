@@ -118,7 +118,7 @@ jobs:
       run: |
         .\.venv\Scripts\Activate.ps1
         cd deploy
-        pyinstaller "OneDragon ScriptChainer Editor.spec"
+        pyinstaller "OneDragon ScriptChainer.spec"
         pyinstaller "OneDragon ScriptChainer Runner.spec"
 
     - name: Upload Editor

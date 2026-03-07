@@ -1,9 +1,11 @@
 from PySide6.QtWidgets import QWidget
-from qfluentwidgets import SettingCardGroup, FluentIcon, Theme, setTheme
+from qfluentwidgets import FluentIcon, SettingCardGroup, Theme, setTheme
 
 from one_dragon.custom.custom_config import ThemeEnum
 from one_dragon_qt.widgets.column import Column
-from one_dragon_qt.widgets.setting_card.combo_box_setting_card import ComboBoxSettingCard
+from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
+    ComboBoxSettingCard,
+)
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 
@@ -46,11 +48,11 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.theme_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('theme'))
 
     def on_theme_changed(self, index: int, value: str) -> None:
-        """
-        主题改变
-        :param index: 选项下标
-        :param value: 值
-        :return:
+        """主题改变。
+
+        Args:
+            index: 选项下标。
+            value: 值。
         """
         theme = self.theme_opt.getValue()
         setTheme(Theme[theme.upper()],lazy=True)
