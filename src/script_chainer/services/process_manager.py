@@ -35,7 +35,6 @@ AUTO-MAS 原始代码版权声明:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
@@ -211,7 +210,8 @@ class ProcessManager:
             command.extend(args)
 
         if cwd is None:
-            cwd = os.path.dirname(program)
+            parent = Path(program).parent
+            cwd = str(parent) if parent != Path('.') else None
 
         try:
             self.process = subprocess.Popen(
@@ -320,11 +320,11 @@ class ProcessManager:
             graceful_timeout: 优雅终止等待时间（秒）。
         """
         main_proc = None
-        if self.target_process is not None:
-            main_proc = self.target_process
-        elif self.process is not None:
+        if self.process is not None:
             with suppress(psutil.NoSuchProcess):
                 main_proc = psutil.Process(self.process.pid)
+        if main_proc is None and self.target_process is not None:
+            main_proc = self.target_process
 
         if main_proc is None:
             return

@@ -54,6 +54,9 @@ class ScriptChainerContext:
 
         Returns:
             新创建的 ScriptChainConfig。
+
+        Raises:
+            RuntimeError: 脚本链数量已达上限(99)时抛出。
         """
         config_dir = self.script_chain_config_dir()
         for i in range(1, 100):

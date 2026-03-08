@@ -9,6 +9,7 @@ import sys
 import time
 from contextlib import suppress
 from logging.handlers import TimedRotatingFileHandler
+from pathlib import PurePath
 
 from colorama import Fore, Style, init
 
@@ -52,7 +53,7 @@ log = get_logger()
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
-    parser.add_argument('--shutdown', action='store_true', help='结束后关机')
+    parser.add_argument('-s', '--shutdown', type=int, nargs='?', const=60, help='运行后关机延迟秒数，默认60秒')
 
     return parser.parse_args()
 
@@ -108,13 +109,16 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
     return pm
 
 
-def _wait_for_subprocess_ready(pm: ProcessManager, script_path: str, timeout: float = 20) -> bool:
+def _wait_for_subprocess_ready(
+    pm: ProcessManager, script_path: str, timeout: float = 20, expect_target: bool = False
+) -> bool:
     """等待子进程就绪，确保进程已经成功启动并运行了一段时间。
 
     Args:
         pm: ProcessManager 实例。
         script_path: 脚本路径（用于日志）。
         timeout: 等待超时时间（秒）。
+        expect_target: 是否期望追踪到目标进程（launcher 场景）。
 
     Returns:
         子进程是否就绪。
@@ -142,9 +146,12 @@ def _wait_for_subprocess_ready(pm: ProcessManager, script_path: str, timeout: fl
             if pm.process is not None:
                 rc = pm.process.poll()
                 if rc == 0:
-                    # 可能是 launcher 正常退出，检查目标进程
-                    print_message(f'启动器已退出 (rc=0) {script_path}')
-                    return True
+                    if expect_target and pm.target_process is None:
+                        # launcher 退出但目标进程未就绪，继续等待
+                        print_message(f'启动器已退出 (rc=0)，等待目标进程 {script_path}')
+                    else:
+                        print_message(f'启动器已退出 (rc=0) {script_path}')
+                        return True
                 else:
                     print_message(f'子进程异常退出 (rc={rc}) {script_path}', level='ERROR')
             stable_since = now  # 重置稳定计时
@@ -286,7 +293,12 @@ def run_script(script_config: ScriptConfig) -> None:
     _active_pm = pm
 
     # 2. 等待子进程就绪
-    if not _wait_for_subprocess_ready(pm, script_path):
+    # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
+    expect_target = (
+        bool(script_config.script_process_name)
+        and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
+    )
+    if not _wait_for_subprocess_ready(pm, script_path, expect_target=expect_target):
         print_message(f'子进程创建失败 {script_path}', level='ERROR')
         pm.kill()
         _active_pm = None
@@ -385,7 +397,7 @@ def run():
     args = parse_args()
     run_chain(
         chain_name=args.chain,
-        shutdown_delay=60 if args.shutdown else 0,
+        shutdown_delay=args.shutdown if args.shutdown else 0,
     )
     sys.exit(0)
 
