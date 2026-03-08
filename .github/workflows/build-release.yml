@@ -126,7 +126,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Editor
-        path: deploy/dist/OneDragon ScriptChainer Editor.exe
+        path: deploy/dist/OneDragon ScriptChainer.exe
 
     - name: Upload Runner
       if: ${{ env.CREATE_RELEASE == 'false' }}
@@ -167,7 +167,7 @@ jobs:
         $version = $env:RELEASE_VERSION
 
         # 在根目录打包两个 exe
-        Compress-Archive -Path "OneDragon ScriptChainer Editor.exe","OneDragon ScriptChainer Runner.exe" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
+        Compress-Archive -Path "OneDragon ScriptChainer.exe","OneDragon ScriptChainer Runner.exe" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
 
 
     - name: Generate Changelog
