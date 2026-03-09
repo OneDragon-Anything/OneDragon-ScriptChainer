@@ -395,7 +395,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
 
 
 def run():
-    """独立运行入口（兼容旧的 pyinstaller 打包方式）。"""
+    """独立运行入口"""
     args = parse_args()
     run_chain(
         chain_name=args.chain,
