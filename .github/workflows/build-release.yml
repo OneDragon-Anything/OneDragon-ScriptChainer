@@ -118,7 +118,7 @@ jobs:
       run: |
         .\.venv\Scripts\Activate.ps1
         cd deploy
-        pyinstaller "OneDragon ScriptChainer Editor.spec"
+        pyinstaller "OneDragon ScriptChainer.spec"
         pyinstaller "OneDragon ScriptChainer Runner.spec"
 
     - name: Upload Editor
@@ -126,7 +126,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Editor
-        path: deploy/dist/OneDragon ScriptChainer Editor.exe
+        path: deploy/dist/OneDragon ScriptChainer.exe
 
     - name: Upload Runner
       if: ${{ env.CREATE_RELEASE == 'false' }}
@@ -167,7 +167,7 @@ jobs:
         $version = $env:RELEASE_VERSION
 
         # 在根目录打包两个 exe
-        Compress-Archive -Path "OneDragon ScriptChainer Editor.exe","OneDragon ScriptChainer Runner.exe" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
+        Compress-Archive -Path "OneDragon ScriptChainer.exe","OneDragon ScriptChainer Runner.exe" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
 
 
     - name: Generate Changelog
@@ -290,8 +290,21 @@ jobs:
 
           1. 下载 `OneDragon-ScriptChainer-${{ needs.build.outputs.version }}.zip`
           2. 解压到任意目录
-          3. 运行 `OneDragon ScriptChainer Editor.exe` 创建和编辑脚本链
+          3. 运行 `OneDragon ScriptChainer.exe` 创建和编辑脚本链
           4. 运行 `OneDragon ScriptChainer Runner.exe` 执行脚本链
+
+          ### 命令行参数
+
+          `OneDragon ScriptChainer.exe` 支持以下参数:
+
+          | 参数 | 说明 |
+          |------|------|
+          | `-o, --onedragon` | 一条龙运行模式（跳过 GUI 直接执行脚本链） |
+          | `--chain <名称>` | 指定脚本链名称，默认 `01`（仅 `--onedragon` 模式） |
+          | `-s, --shutdown [秒数]` | 运行后关机，可指定延迟秒数，默认 60 秒（仅 `--onedragon` 模式） |
+          | `-v, --version` | 显示版本号 |
+
+          示例: `OneDragon ScriptChainer.exe -o --chain 02 -s 120`
 
           [更多参考](https://one-dragon.com/tools/zh/script_chainer.html)
 

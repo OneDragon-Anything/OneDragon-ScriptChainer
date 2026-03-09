@@ -268,10 +268,7 @@ class ScriptSettingCard(DraggableListItem):
         self._update_display()
 
     def on_edit_clicked(self) -> None:
-        """
-        点击编辑 弹出窗口
-        :return:
-        """
+        """点击编辑，弹出窗口"""
         dialog = ScriptEditDialog(config=self.config,
                                   parent=self.window())
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -280,10 +277,10 @@ class ScriptSettingCard(DraggableListItem):
             self.value_changed.emit(config)
 
     def init_by_config(self, config: ScriptConfig) -> None:
-        """
-        根据配置初始化
-        :param config:
-        :return:
+        """根据配置初始化。
+
+        Args:
+            config: 脚本配置。
         """
         self.config = config
         self.data = config
@@ -300,9 +297,7 @@ class ScriptSettingCard(DraggableListItem):
         self._update_display()
 
     def on_delete_clicked(self) -> None:
-        """
-        删除
-        """
+        """删除"""
         self.deleted.emit(self.index)
 
 
@@ -370,10 +365,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.update_chain_display()
 
     def update_chain_combo_box(self) -> None:
-        """
-        更新脚本链选项
-        :return:
-        """
+        """更新脚本链选项"""
         self.chain_combo_box.set_items(
             [
                 ConfigItem(i.module_name)
@@ -383,30 +375,24 @@ class ScriptSettingInterface(VerticalScrollInterface):
         )
 
     def on_chain_selected(self, index: int) -> None:
-        """
-        当选择脚本链时
-        :param index:
-        :return:
+        """当选择脚本链时。
+
+        Args:
+            index: 选项下标。
         """
         module_name = self.chain_combo_box.currentData()
         self.chosen_config = ScriptChainConfig(module_name)
         self.update_chain_display()
 
     def on_add_chain_clicked(self) -> None:
-        """
-        新增一个脚本链
-        :return:
-        """
+        """新增一个脚本链"""
         config = self.ctx.add_script_chain_config()
         self.update_chain_combo_box()
         self.chain_combo_box.init_with_value(config.module_name)
         self.on_chain_selected(-1)
 
     def on_delete_chain_clicked(self) -> None:
-        """
-        移除一个脚本链
-        :return:
-        """
+        """移除一个脚本链"""
         dialog = Dialog("警告", "你确定要删除这个脚本链吗？\n删除之后无法恢复！", parent=self.window())
         dialog.setTitleBarVisible(False)
         if dialog.exec():
@@ -416,10 +402,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
             self.update_chain_display()
 
     def on_rename_chain_clicked(self) -> None:
-        """
-        重命名脚本链
-        :return:
-        """
+        """重命名脚本链"""
         if self.chosen_config is None:
             return
 
@@ -437,20 +420,14 @@ class ScriptSettingInterface(VerticalScrollInterface):
                 error_dialog.exec()
 
     def on_add_script_clicked(self) -> None:
-        """
-        新增一个脚本配置
-        :return:
-        """
+        """新增一个脚本配置"""
         if self.chosen_config is None:
             return
         self.chosen_config.add_one()
         self.update_chain_display()
 
     def update_chain_display(self) -> None:
-        """
-        更新脚本链的显示
-        :return:
-        """
+        """更新脚本链的显示"""
         chosen: bool = self.chosen_config is not None
         self.script_list_widget.setVisible(chosen)
         self.add_script_btn.setVisible(chosen)
@@ -476,9 +453,10 @@ class ScriptSettingInterface(VerticalScrollInterface):
             card.deleted.connect(self.script_config_deleted)
 
     def on_order_changed(self, new_data_list: list) -> None:
-        """
-        拖拽排序后的回调
-        :param new_data_list: 新顺序的数据列表
+        """拖拽排序后的回调。
+
+        Args:
+            new_data_list: 新顺序的数据列表。
         """
         if self.chosen_config is None:
             return
@@ -498,18 +476,14 @@ class ScriptSettingInterface(VerticalScrollInterface):
             card.update_item(card.config, idx)
 
     def script_config_changed(self, config: ScriptConfig) -> None:
-        """
-        脚本配置变化
-        """
+        """脚本配置变化"""
         if self.chosen_config is None:
             return
 
         self.chosen_config.update_config(config)
 
     def script_config_deleted(self, idx: int) -> None:
-        """
-        脚本配置删除
-        """
+        """脚本配置删除"""
         if self.chosen_config is None:
             return
 

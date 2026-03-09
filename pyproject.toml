@@ -15,6 +15,7 @@ dependencies = [
     "pyside6-fluent-widgets==1.11.1",
     "pyyaml==6.0.2",
     "requests==2.32.4",
+    "pyuac==0.0.3",
     "ruff>=0.15.5",
 ]
 
