@@ -363,12 +363,14 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                 if script_config.notify_start:
                     if ctx is not None:
                         ctx.push_service.push_async(
+                            title=ctx.notify_config.title,
                             content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
                         )
                 run_script(script_config)
                 if script_config.notify_done:
                     if ctx is not None:
                         ctx.push_service.push_async(
+                            title=ctx.notify_config.title,
                             content=f'脚本链 {chain_name} 运行结束: {script_config.script_display_name}'
                         )
                 if i < len(chain_config.script_list) - 1:
