@@ -318,3 +318,12 @@ jobs:
         prerelease: ${{ contains(needs.build.outputs.version, '-beta.') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Trigger MirrorChyanUploading
+      if: ${{ github.repository_owner == 'OneDragon-Anything' }}
+      shell: bash
+      run: |
+        gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan-release.yml -f tag=${{ needs.build.outputs.tag }}
+        gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan-release_note.yml -f tag=${{ needs.build.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
