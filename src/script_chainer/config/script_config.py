@@ -73,7 +73,7 @@ class ScriptConfig:
     def check_done_display_name(self) -> str:
         config = get_config_item_from_enum(CheckDoneMethods, self.check_done)
         if config is not None:
-            return config.value.label
+            return config.label
         else:
             return ''
 
