@@ -372,11 +372,10 @@ class ProcessManager:
         try:
             for raw_line in iter(pipe.readline, b""):
                 line = decode_bytes(raw_line, console_enc).rstrip("\r\n")
-                if line:
-                    try:
-                        callback(line)
-                    except Exception:
-                        continue
+                try:
+                    callback(line)
+                except Exception:
+                    continue
         except (OSError, ValueError):
             pass
         finally:

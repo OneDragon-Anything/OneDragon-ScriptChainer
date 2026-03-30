@@ -7,6 +7,7 @@ import shlex
 import signal
 import sys
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import PurePath
@@ -68,10 +69,18 @@ def print_message(message: str, level="INFO"):
     log.info(message)
 
 
-def _on_script_stdout(line: str) -> None:
-    """子进程 stdout 回调：转发到控制台和日志。"""
-    print(line, flush=True)
-    log.info('[脚本] %s', line)
+def _make_stdout_callback(display_name: str) -> Callable[[str], None]:
+    """创建 stdout 回调闭包，每 5 行输出一次运行状态。"""
+    counter = [0]
+
+    def _on_script_stdout(line: str) -> None:
+        print(line, flush=True)
+        log.info('[脚本] %s', line)
+        counter[0] += 1
+        if counter[0] % 5 == 0:
+            print_message(f'正在运行 {display_name}')
+
+    return _on_script_stdout
 
 
 def _launch_script(script_config: ScriptConfig) -> ProcessManager:
@@ -106,7 +115,7 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
         args=args_list,
         target_process=target,
         search_timeout=30,
-        stdout_callback=_on_script_stdout,
+        stdout_callback=_make_stdout_callback(script_config.script_display_name),
     )
 
     if success:
