@@ -47,6 +47,8 @@ from pathlib import Path
 
 import psutil
 
+from one_dragon.utils.encoding_utils import decode_bytes, get_console_encoding
+
 _log = logging.getLogger(__name__)
 
 # Windows 下隐藏控制台窗口的标志
@@ -364,9 +366,10 @@ class ProcessManager:
     @staticmethod
     def _read_stdout(pipe, callback: Callable[[str], None]) -> None:
         """持续读取子进程 stdout 并逐行回调（守护线程入口）。"""
+        console_enc = get_console_encoding()
         try:
             for raw_line in iter(pipe.readline, b""):
-                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                line = decode_bytes(raw_line, console_enc).rstrip("\r\n")
                 if line:
                     callback(line)
         except (OSError, ValueError):
@@ -393,18 +396,18 @@ class ProcessManager:
         Returns:
             ProcessResult 包含 stdout、stderr 和 returncode。
         """
+        console_enc = get_console_encoding()
         try:
             result = subprocess.run(
                 command,
                 cwd=cwd,
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 creationflags=CREATION_FLAGS,
             )
             return ProcessResult(
-                stdout=result.stdout,
-                stderr=result.stderr,
+                stdout=decode_bytes(result.stdout, console_enc),
+                stderr=decode_bytes(result.stderr, console_enc),
                 returncode=result.returncode,
             )
         except subprocess.TimeoutExpired:
