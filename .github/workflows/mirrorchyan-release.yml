@@ -1,0 +1,27 @@
+name: mirrorchyan release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        default: ''
+        required: false
+#   release:
+#     types: [released]
+
+jobs:
+  mirrorchyan:
+    runs-on: macos-latest
+    # if: ${{ github.repository_owner == 'OneDragon-Anything' }}
+    steps:
+      - uses: MirrorChyan/uploading-action@v1
+        with:
+          filetype: latest-release
+          filename: 'OneDragon-ScriptChainer-*.zip'
+          mirrorchyan_rid: OneDragon-ScriptChainer
+          tag: ${{ inputs.tag }}
+
+          owner: OneDragon-Anything
+          repo: OneDragon-ScriptChainer
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upload_token: ${{ secrets.MirrorChyanUploadToken }}
