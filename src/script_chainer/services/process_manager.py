@@ -271,6 +271,12 @@ class ProcessManager:
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
+            # 若 launcher 已异常退出，提前结束搜索
+            if self.process is not None and self.process.poll() is not None:
+                rc = self.process.returncode
+                if rc != 0:
+                    _log.warning('启动器已异常退出 (rc=%s)，停止搜索目标进程', rc)
+                    return False
             # 优先从已启动进程的子进程树中搜索
             found = self._search_in_children(target)
             if found is None:
