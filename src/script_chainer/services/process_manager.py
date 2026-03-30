@@ -242,9 +242,12 @@ class ProcessManager:
             )
             self._stdout_thread.start()
 
-        # 若指定了目标进程，则搜索并追踪
+        # 若指定了目标进程，则搜索并追踪；失败时回收已启动资源
         if target_process is not None:
-            return self.search_process(target_process, search_timeout)
+            found = self.search_process(target_process, search_timeout)
+            if not found:
+                self.kill()
+            return found
 
         return True
 
