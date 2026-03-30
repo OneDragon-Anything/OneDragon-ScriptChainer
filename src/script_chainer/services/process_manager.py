@@ -381,6 +381,8 @@ class ProcessManager:
     def clear(self) -> None:
         """清空跟踪的进程信息。"""
         if self._stdout_thread is not None and self._stdout_thread.is_alive():
+            # 尽力等待 stdout 线程退出；因为是守护线程且此时管道已关闭，
+            # 线程通常会在超时前结束。即使超时，守护线程也不会泄漏。
             self._stdout_thread.join(timeout=1.0)
         self.process = None
         self.target_process = None
