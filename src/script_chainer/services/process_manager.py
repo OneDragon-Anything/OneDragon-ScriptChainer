@@ -53,6 +53,18 @@ from script_chainer.utils.process_utils import graceful_kill_popen, graceful_kil
 CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
+class LauncherExitError(Exception):
+    """启动器异常退出时抛出。
+
+    Attributes:
+        returncode: 启动器进程的返回码。
+    """
+
+    def __init__(self, returncode: int):
+        self.returncode = returncode
+        super().__init__(f'启动器异常退出 (rc={returncode})')
+
+
 @dataclass
 class ProcessInfo:
     """用于标识目标进程的数据类。
@@ -229,10 +241,7 @@ class ProcessManager:
             popen_kwargs["stdout"] = subprocess.PIPE
             popen_kwargs["stderr"] = subprocess.STDOUT
 
-        try:
-            self.process = subprocess.Popen(command, **popen_kwargs)
-        except Exception:
-            return False
+        self.process = subprocess.Popen(command, **popen_kwargs)
 
         # 启动 stdout 读取守护线程
         if stdout_callback is not None and self.process.stdout is not None:
@@ -245,7 +254,11 @@ class ProcessManager:
 
         # 若指定了目标进程，则搜索并追踪；失败时回收已启动资源
         if target_process is not None:
-            found = self.search_process(target_process, search_timeout)
+            try:
+                found = self.search_process(target_process, search_timeout)
+            except LauncherExitError:
+                self.kill()
+                raise
             if not found:
                 self.kill()
             return found
@@ -276,8 +289,7 @@ class ProcessManager:
             if self.process is not None and self.process.poll() is not None:
                 rc = self.process.returncode
                 if rc != 0:
-                    _log.warning('启动器已异常退出 (rc=%s)，停止搜索目标进程', rc)
-                    return False
+                    raise LauncherExitError(rc)
             # 优先从已启动进程的子进程树中搜索
             found = self._search_in_children(target)
             if found is None:

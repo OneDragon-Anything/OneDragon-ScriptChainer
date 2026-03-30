@@ -22,6 +22,7 @@ from script_chainer.config.script_config import (
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.services.process_manager import (
+    LauncherExitError,
     ProcessInfo,
     ProcessManager,
     find_process_by_info,
@@ -110,13 +111,22 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
         target = ProcessInfo(name=script_config.script_process_name)
 
     pm = ProcessManager()
-    success = pm.open_process(
-        program=script_path,
-        args=args_list,
-        target_process=target,
-        search_timeout=30,
-        stdout_callback=_make_stdout_callback(script_config.script_display_name),
-    )
+    try:
+        success = pm.open_process(
+            program=script_path,
+            args=args_list,
+            target_process=target,
+            search_timeout=30,
+            stdout_callback=_make_stdout_callback(script_config.script_display_name),
+        )
+    except LauncherExitError as e:
+        log.error('启动器异常退出: %s', e, exc_info=True)
+        print_message(f'启动器异常退出 {script_path} (rc={e.returncode})', level='ERROR')
+        return pm
+    except Exception:
+        log.error('启动子进程失败: %s', script_path, exc_info=True)
+        print_message(f'脚本进程启动失败 {script_path}', level='ERROR')
+        return pm
 
     if success:
         print_message(f'脚本进程启动成功 {script_path}', level='PASS')
