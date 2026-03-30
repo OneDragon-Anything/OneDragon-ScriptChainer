@@ -7,6 +7,7 @@ import shlex
 import signal
 import sys
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import PurePath
@@ -21,6 +22,7 @@ from script_chainer.config.script_config import (
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.services.process_manager import (
+    LauncherExitError,
     ProcessInfo,
     ProcessManager,
     find_process_by_info,
@@ -68,12 +70,32 @@ def print_message(message: str, level="INFO"):
     log.info(message)
 
 
+def _make_stdout_callback(display_name: str) -> Callable[[str], None]:
+    """创建 stdout 回调闭包，同时满足行数和时间间隔时才打印运行状态。"""
+    counter = [0]
+    last_status_time = [0.0]
+    prefix = f'{Style.DIM}[{display_name}]{Style.RESET_ALL}'
+
+    def _on_script_stdout(line: str) -> None:
+        print(f'{prefix} {line}', flush=True)
+        log.info('[脚本] %s', line)
+        counter[0] += 1
+        now = time.time()
+        if counter[0] >= 5 and now - last_status_time[0] >= 5:
+            print_message(f'正在运行 {display_name}', level='PASS')
+            counter[0] = 0
+            last_status_time[0] = now
+
+    return _on_script_stdout
+
+
 def _launch_script(script_config: ScriptConfig) -> ProcessManager:
     """启动脚本子进程并返回 ProcessManager。
 
     使用 ProcessManager 封装子进程的启动，支持:
         - CREATION_FLAGS 隐藏控制台窗口。
         - 目标进程追踪（当 script_process_name 与启动器不同时）。
+        - stdout 捕获并转发到控制台/日志。
 
     Args:
         script_config: 脚本配置。
@@ -94,12 +116,24 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
         target = ProcessInfo(name=script_config.script_process_name)
 
     pm = ProcessManager()
-    success = pm.open_process(
-        program=script_path,
-        args=args_list,
-        target_process=target,
-        search_timeout=30,
-    )
+    try:
+        success = pm.open_process(
+            program=script_path,
+            args=args_list,
+            target_process=target,
+            search_timeout=30,
+            stdout_callback=_make_stdout_callback(
+                script_config.game_display_name or script_config.script_display_name
+            ),
+        )
+    except LauncherExitError as e:
+        log.error('启动器异常退出: %s', e, exc_info=True)
+        print_message(f'启动器异常退出 {script_path} (rc={e.returncode})', level='ERROR')
+        return pm
+    except Exception:
+        log.error('启动子进程失败: %s', script_path, exc_info=True)
+        print_message(f'脚本进程启动失败 {script_path}', level='ERROR')
+        return pm
 
     if success:
         print_message(f'脚本进程启动成功 {script_path}', level='PASS')

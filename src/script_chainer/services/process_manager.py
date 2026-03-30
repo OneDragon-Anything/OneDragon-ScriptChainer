@@ -37,15 +37,32 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 import psutil
 
+from one_dragon.utils.encoding_utils import decode_bytes, get_console_encoding
+from script_chainer.utils.process_utils import graceful_kill_popen, graceful_kill_psutil
+
 # Windows 下隐藏控制台窗口的标志
 CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
+class LauncherExitError(Exception):
+    """启动器异常退出时抛出。
+
+    Attributes:
+        returncode: 启动器进程的返回码。
+    """
+
+    def __init__(self, returncode: int):
+        self.returncode = returncode
+        super().__init__(f'启动器异常退出 (rc={returncode})')
 
 
 @dataclass
@@ -159,6 +176,7 @@ class ProcessManager:
     def __init__(self):
         self.process: subprocess.Popen | None = None
         self.target_process: psutil.Process | None = None
+        self._stdout_thread: threading.Thread | None = None
 
     @property
     def main_pid(self) -> int | None:
@@ -187,6 +205,7 @@ class ProcessManager:
         cwd: str | None = None,
         target_process: ProcessInfo | None = None,
         search_timeout: float = 60,
+        stdout_callback: Callable[[str], None] | None = None,
     ) -> bool:
         """启动子进程。
 
@@ -196,6 +215,7 @@ class ProcessManager:
             cwd: 工作目录，默认为 program 所在目录。
             target_process: 目标进程信息（用于追踪 launcher 启动的子进程）。
             search_timeout: 搜索目标进程的超时时间（秒）。
+            stdout_callback: 子进程输出回调，每行调用一次。为 None 时不捕获输出。
 
         Returns:
             是否成功启动并追踪到进程。
@@ -213,18 +233,35 @@ class ProcessManager:
             parent = Path(program).parent
             cwd = str(parent) if parent != Path('.') else None
 
-        try:
-            self.process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                creationflags=CREATION_FLAGS,
-            )
-        except Exception:
-            return False
+        popen_kwargs: dict = {
+            "cwd": cwd,
+            "creationflags": CREATION_FLAGS,
+        }
+        if stdout_callback is not None:
+            popen_kwargs["stdout"] = subprocess.PIPE
+            popen_kwargs["stderr"] = subprocess.STDOUT
 
-        # 若指定了目标进程，则搜索并追踪
+        self.process = subprocess.Popen(command, **popen_kwargs)
+
+        # 启动 stdout 读取守护线程
+        if stdout_callback is not None and self.process.stdout is not None:
+            self._stdout_thread = threading.Thread(
+                target=self._read_stdout,
+                args=(self.process.stdout, stdout_callback),
+                daemon=True,
+            )
+            self._stdout_thread.start()
+
+        # 若指定了目标进程，则搜索并追踪；失败时回收已启动资源
         if target_process is not None:
-            return self.search_process(target_process, search_timeout)
+            try:
+                found = self.search_process(target_process, search_timeout)
+            except LauncherExitError:
+                self.kill()
+                raise
+            if not found:
+                self.kill()
+            return found
 
         return True
 
@@ -248,6 +285,11 @@ class ProcessManager:
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
+            # 若 launcher 已异常退出，提前结束搜索
+            if self.process is not None and self.process.poll() is not None:
+                rc = self.process.returncode
+                if rc != 0:
+                    raise LauncherExitError(rc)
             # 优先从已启动进程的子进程树中搜索
             found = self._search_in_children(target)
             if found is None:
@@ -298,18 +340,20 @@ class ProcessManager:
         Args:
             graceful_timeout: 优雅终止等待时间（秒）。
         """
-        # 先终止子进程树
         self._kill_children(graceful_timeout)
-
-        # 终止目标进程（psutil.Process）
-        if self.target_process is not None:
-            _graceful_kill_psutil(self.target_process, graceful_timeout)
-
-        # 终止直接子进程（subprocess.Popen）
-        if self.process is not None and self.process.poll() is None:
-            _graceful_kill_popen(self.process, graceful_timeout)
-
+        self._kill_target(graceful_timeout)
+        self._kill_direct(graceful_timeout)
         self.clear()
+
+    def _kill_target(self, graceful_timeout: float = 3) -> None:
+        """终止追踪的目标进程（psutil.Process）。"""
+        if self.target_process is not None:
+            graceful_kill_psutil(self.target_process, graceful_timeout)
+
+    def _kill_direct(self, graceful_timeout: float = 3) -> None:
+        """终止直接启动的子进程（subprocess.Popen）。"""
+        if self.process is not None and self.process.poll() is None:
+            graceful_kill_popen(self.process, graceful_timeout)
 
     def _kill_children(self, graceful_timeout: float = 3) -> None:
         """终止被管理进程的所有子进程（进程树清理）。
@@ -332,12 +376,34 @@ class ProcessManager:
         with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
             children = main_proc.children(recursive=True)
             for child in children:
-                _graceful_kill_psutil(child, graceful_timeout)
+                graceful_kill_psutil(child, graceful_timeout)
 
     def clear(self) -> None:
         """清空跟踪的进程信息。"""
+        if self._stdout_thread is not None and self._stdout_thread.is_alive():
+            # 尽力等待 stdout 线程退出；因为是守护线程且此时管道已关闭，
+            # 线程通常会在超时前结束。即使超时，守护线程也不会泄漏。
+            self._stdout_thread.join(timeout=1.0)
         self.process = None
         self.target_process = None
+        self._stdout_thread = None
+
+    @staticmethod
+    def _read_stdout(pipe, callback: Callable[[str], None]) -> None:
+        """持续读取子进程 stdout 并逐行回调（守护线程入口）。"""
+        console_enc = get_console_encoding()
+        try:
+            for raw_line in iter(pipe.readline, b""):
+                line = decode_bytes(raw_line, console_enc).rstrip("\r\n")
+                try:
+                    callback(line)
+                except Exception:
+                    continue
+        except (OSError, ValueError):
+            pass
+        finally:
+            with suppress(OSError):
+                pipe.close()
 
     @staticmethod
     def run_process(
@@ -357,60 +423,22 @@ class ProcessManager:
         Returns:
             ProcessResult 包含 stdout、stderr 和 returncode。
         """
+        console_enc = get_console_encoding()
         try:
             result = subprocess.run(
                 command,
                 cwd=cwd,
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 creationflags=CREATION_FLAGS,
             )
             return ProcessResult(
-                stdout=result.stdout,
-                stderr=result.stderr,
+                stdout=decode_bytes(result.stdout, console_enc),
+                stderr=decode_bytes(result.stderr, console_enc),
                 returncode=result.returncode,
             )
         except subprocess.TimeoutExpired:
             return ProcessResult(stdout='', stderr='执行超时', returncode=-1)
         except Exception as e:
             return ProcessResult(stdout='', stderr=str(e), returncode=-1)
-
-
-def _graceful_kill_psutil(proc: psutil.Process, graceful_timeout: float = 3) -> None:
-    """优雅终止一个 psutil.Process: terminate -> wait -> kill。
-
-    Args:
-        proc: 要终止的进程。
-        graceful_timeout: 等待时间（秒）。
-    """
-    with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-        if not proc.is_running():
-            return
-        try:
-            proc.terminate()
-            proc.wait(timeout=graceful_timeout)
-        except psutil.TimeoutExpired:
-            with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                proc.kill()
-                with suppress(psutil.TimeoutExpired):
-                    proc.wait(timeout=graceful_timeout)
-
-
-def _graceful_kill_popen(proc: subprocess.Popen, graceful_timeout: float = 3) -> None:
-    """优雅终止一个 subprocess.Popen: terminate -> wait -> kill。
-
-    Args:
-        proc: 要终止的进程。
-        graceful_timeout: 等待时间（秒）。
-    """
-    with suppress(ProcessLookupError, OSError):
-        try:
-            proc.terminate()
-            proc.wait(timeout=graceful_timeout)
-        except subprocess.TimeoutExpired:
-            with suppress(ProcessLookupError, OSError):
-                proc.kill()
-                with suppress(subprocess.TimeoutExpired):
-                    proc.wait(timeout=graceful_timeout)
 
