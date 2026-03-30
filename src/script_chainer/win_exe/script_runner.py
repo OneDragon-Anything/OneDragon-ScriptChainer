@@ -68,12 +68,19 @@ def print_message(message: str, level="INFO"):
     log.info(message)
 
 
+def _on_script_stdout(line: str) -> None:
+    """子进程 stdout 回调：转发到控制台和日志。"""
+    print(line, flush=True)
+    log.info('[脚本] %s', line)
+
+
 def _launch_script(script_config: ScriptConfig) -> ProcessManager:
     """启动脚本子进程并返回 ProcessManager。
 
     使用 ProcessManager 封装子进程的启动，支持:
         - CREATION_FLAGS 隐藏控制台窗口。
         - 目标进程追踪（当 script_process_name 与启动器不同时）。
+        - stdout 捕获并转发到控制台/日志。
 
     Args:
         script_config: 脚本配置。
@@ -99,6 +106,7 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
         args=args_list,
         target_process=target,
         search_timeout=30,
+        stdout_callback=_on_script_stdout,
     )
 
     if success:

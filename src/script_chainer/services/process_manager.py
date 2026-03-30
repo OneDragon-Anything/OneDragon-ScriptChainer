@@ -35,14 +35,19 @@ AUTO-MAS 原始代码版权声明:
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 import psutil
+
+_log = logging.getLogger(__name__)
 
 # Windows 下隐藏控制台窗口的标志
 CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -159,6 +164,7 @@ class ProcessManager:
     def __init__(self):
         self.process: subprocess.Popen | None = None
         self.target_process: psutil.Process | None = None
+        self._stdout_thread: threading.Thread | None = None
 
     @property
     def main_pid(self) -> int | None:
@@ -187,6 +193,7 @@ class ProcessManager:
         cwd: str | None = None,
         target_process: ProcessInfo | None = None,
         search_timeout: float = 60,
+        stdout_callback: Callable[[str], None] | None = None,
     ) -> bool:
         """启动子进程。
 
@@ -196,6 +203,7 @@ class ProcessManager:
             cwd: 工作目录，默认为 program 所在目录。
             target_process: 目标进程信息（用于追踪 launcher 启动的子进程）。
             search_timeout: 搜索目标进程的超时时间（秒）。
+            stdout_callback: 子进程输出回调，每行调用一次。为 None 时不捕获输出。
 
         Returns:
             是否成功启动并追踪到进程。
@@ -213,14 +221,27 @@ class ProcessManager:
             parent = Path(program).parent
             cwd = str(parent) if parent != Path('.') else None
 
+        popen_kwargs: dict = {
+            "cwd": cwd,
+            "creationflags": CREATION_FLAGS,
+        }
+        if stdout_callback is not None:
+            popen_kwargs["stdout"] = subprocess.PIPE
+            popen_kwargs["stderr"] = subprocess.STDOUT
+
         try:
-            self.process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                creationflags=CREATION_FLAGS,
-            )
+            self.process = subprocess.Popen(command, **popen_kwargs)
         except Exception:
             return False
+
+        # 启动 stdout 读取守护线程
+        if stdout_callback is not None and self.process.stdout is not None:
+            self._stdout_thread = threading.Thread(
+                target=self._read_stdout,
+                args=(self.process.stdout, stdout_callback),
+                daemon=True,
+            )
+            self._stdout_thread.start()
 
         # 若指定了目标进程，则搜索并追踪
         if target_process is not None:
@@ -338,6 +359,21 @@ class ProcessManager:
         """清空跟踪的进程信息。"""
         self.process = None
         self.target_process = None
+        self._stdout_thread = None
+
+    @staticmethod
+    def _read_stdout(pipe, callback: Callable[[str], None]) -> None:
+        """持续读取子进程 stdout 并逐行回调（守护线程入口）。"""
+        try:
+            for raw_line in iter(pipe.readline, b""):
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line:
+                    callback(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            with suppress(OSError):
+                pipe.close()
 
     @staticmethod
     def run_process(
