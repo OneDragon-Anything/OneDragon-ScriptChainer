@@ -47,6 +47,7 @@ from pathlib import Path
 import psutil
 
 from one_dragon.utils.encoding_utils import decode_bytes, get_console_encoding
+from script_chainer.utils.process_utils import graceful_kill_popen, graceful_kill_psutil
 
 # Windows 下隐藏控制台窗口的标志
 CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -327,18 +328,20 @@ class ProcessManager:
         Args:
             graceful_timeout: 优雅终止等待时间（秒）。
         """
-        # 先终止子进程树
         self._kill_children(graceful_timeout)
-
-        # 终止目标进程（psutil.Process）
-        if self.target_process is not None:
-            _graceful_kill_psutil(self.target_process, graceful_timeout)
-
-        # 终止直接子进程（subprocess.Popen）
-        if self.process is not None and self.process.poll() is None:
-            _graceful_kill_popen(self.process, graceful_timeout)
-
+        self._kill_target(graceful_timeout)
+        self._kill_direct(graceful_timeout)
         self.clear()
+
+    def _kill_target(self, graceful_timeout: float = 3) -> None:
+        """终止追踪的目标进程（psutil.Process）。"""
+        if self.target_process is not None:
+            graceful_kill_psutil(self.target_process, graceful_timeout)
+
+    def _kill_direct(self, graceful_timeout: float = 3) -> None:
+        """终止直接启动的子进程（subprocess.Popen）。"""
+        if self.process is not None and self.process.poll() is None:
+            graceful_kill_popen(self.process, graceful_timeout)
 
     def _kill_children(self, graceful_timeout: float = 3) -> None:
         """终止被管理进程的所有子进程（进程树清理）。
@@ -361,7 +364,7 @@ class ProcessManager:
         with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
             children = main_proc.children(recursive=True)
             for child in children:
-                _graceful_kill_psutil(child, graceful_timeout)
+                graceful_kill_psutil(child, graceful_timeout)
 
     def clear(self) -> None:
         """清空跟踪的进程信息。"""
@@ -424,42 +427,4 @@ class ProcessManager:
             return ProcessResult(stdout='', stderr='执行超时', returncode=-1)
         except Exception as e:
             return ProcessResult(stdout='', stderr=str(e), returncode=-1)
-
-
-def _graceful_kill_psutil(proc: psutil.Process, graceful_timeout: float = 3) -> None:
-    """优雅终止一个 psutil.Process: terminate -> wait -> kill。
-
-    Args:
-        proc: 要终止的进程。
-        graceful_timeout: 等待时间（秒）。
-    """
-    with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-        if not proc.is_running():
-            return
-        try:
-            proc.terminate()
-            proc.wait(timeout=graceful_timeout)
-        except psutil.TimeoutExpired:
-            with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                proc.kill()
-                with suppress(psutil.TimeoutExpired):
-                    proc.wait(timeout=graceful_timeout)
-
-
-def _graceful_kill_popen(proc: subprocess.Popen, graceful_timeout: float = 3) -> None:
-    """优雅终止一个 subprocess.Popen: terminate -> wait -> kill。
-
-    Args:
-        proc: 要终止的进程。
-        graceful_timeout: 等待时间（秒）。
-    """
-    with suppress(ProcessLookupError, OSError):
-        try:
-            proc.terminate()
-            proc.wait(timeout=graceful_timeout)
-        except subprocess.TimeoutExpired:
-            with suppress(ProcessLookupError, OSError):
-                proc.kill()
-                with suppress(subprocess.TimeoutExpired):
-                    proc.wait(timeout=graceful_timeout)
 
