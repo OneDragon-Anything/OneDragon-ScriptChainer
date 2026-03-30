@@ -25,4 +25,4 @@ def decode_bytes(data: bytes, console_encoding: str) -> str:
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
-        return data.decode(console_encoding, errors="replace")
+        return data.decode("utf-8", errors="replace")

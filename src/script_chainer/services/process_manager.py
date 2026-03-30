@@ -35,7 +35,6 @@ AUTO-MAS 原始代码版权声明:
 
 from __future__ import annotations
 
-import logging
 import subprocess
 import sys
 import threading
@@ -48,8 +47,6 @@ from pathlib import Path
 import psutil
 
 from one_dragon.utils.encoding_utils import decode_bytes, get_console_encoding
-
-_log = logging.getLogger(__name__)
 
 # Windows 下隐藏控制台窗口的标志
 CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -359,6 +356,8 @@ class ProcessManager:
 
     def clear(self) -> None:
         """清空跟踪的进程信息。"""
+        if self._stdout_thread is not None and self._stdout_thread.is_alive():
+            self._stdout_thread.join(timeout=1.0)
         self.process = None
         self.target_process = None
         self._stdout_thread = None
