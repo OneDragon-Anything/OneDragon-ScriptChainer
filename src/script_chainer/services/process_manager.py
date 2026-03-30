@@ -35,6 +35,9 @@ AUTO-MAS 原始代码版权声明:
 
 from __future__ import annotations
 
+import atexit
+import ctypes
+import ctypes.wintypes
 import subprocess
 import sys
 import threading
@@ -173,6 +176,8 @@ class ProcessManager:
         target_process: 追踪的目标进程。
     """
 
+    _job_handle: int | None = None  # Windows Job Object 句柄（类级单例）
+
     def __init__(self):
         self.process: subprocess.Popen | None = None
         self.target_process: psutil.Process | None = None
@@ -242,6 +247,11 @@ class ProcessManager:
             popen_kwargs["stderr"] = subprocess.STDOUT
 
         self.process = subprocess.Popen(command, **popen_kwargs)
+
+        # 将子进程加入 Job Object，父进程退出时自动清理
+        job = self._get_job()
+        if job is not None:
+            self._assign_to_job(job, self.process._handle)  # ty:ignore[unresolved-attribute]
 
         # 启动 stdout 读取守护线程
         if stdout_callback is not None and self.process.stdout is not None:
@@ -387,6 +397,92 @@ class ProcessManager:
         self.process = None
         self.target_process = None
         self._stdout_thread = None
+
+    # ------------------------------------------------------------------
+    # Windows Job Object — 父进程退出时自动清理所有子进程
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_job(cls) -> int | None:
+        """获取或创建 Windows Job Object（懒初始化，KILL_ON_JOB_CLOSE）。"""
+        if cls._job_handle is not None or sys.platform != "win32":
+            return cls._job_handle
+        cls._job_handle = cls._create_job()
+        return cls._job_handle
+
+    @staticmethod
+    def _create_job() -> int | None:
+        """创建带 KILL_ON_JOB_CLOSE 标志的 Windows Job Object。"""
+
+        class _BASIC_LIMIT(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", ctypes.wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", ctypes.wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", ctypes.wintypes.DWORD),
+                ("SchedulingClass", ctypes.wintypes.DWORD),
+            ]
+
+        class _IO_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_uint64),
+                ("WriteOperationCount", ctypes.c_uint64),
+                ("OtherOperationCount", ctypes.c_uint64),
+                ("ReadTransferCount", ctypes.c_uint64),
+                ("WriteTransferCount", ctypes.c_uint64),
+                ("OtherTransferCount", ctypes.c_uint64),
+            ]
+
+        class _EXT_LIMIT(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _BASIC_LIMIT),
+                ("IoInfo", _IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.windll.kernel32
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+
+        info = _EXT_LIMIT()
+        # KILL_ON_JOB_CLOSE: 句柄关闭时终止所有子进程
+        # BREAKAWAY_OK: 允许子进程按需逃离 Job（需 CREATE_BREAKAWAY_FROM_JOB）
+        info.BasicLimitInformation.LimitFlags = 0x2000 | 0x0800
+
+        if not kernel32.SetInformationJobObject(
+            job, 9, ctypes.byref(info), ctypes.sizeof(info),
+        ):
+            kernel32.CloseHandle(job)
+            return None
+
+        # 注册退出清理，正常退出时主动关闭 Job 句柄
+        def _cleanup():
+            with suppress(Exception):
+                kernel32.CloseHandle(job)
+
+        atexit.register(_cleanup)
+
+        return job
+
+    @staticmethod
+    def _assign_to_job(job_handle: int, proc_handle: int) -> bool:
+        """将进程加入 Job Object。
+
+        Args:
+            job_handle: Job Object 句柄。
+            proc_handle: 进程句柄（Popen._handle）。
+        """
+        return bool(
+            ctypes.windll.kernel32.AssignProcessToJobObject(job_handle, proc_handle)
+        )
 
     @staticmethod
     def _read_stdout(pipe, callback: Callable[[str], None]) -> None:
