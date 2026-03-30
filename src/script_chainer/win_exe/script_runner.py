@@ -71,15 +71,16 @@ def print_message(message: str, level="INFO"):
 
 
 def _make_stdout_callback(display_name: str) -> Callable[[str], None]:
-    """创建 stdout 回调闭包，每 5 行输出一次运行状态。"""
+    """创建 stdout 回调闭包，脚本输出带前缀区分来源，每 5 行打印一次运行状态。"""
     counter = [0]
+    prefix = f'{Fore.MAGENTA}[{display_name}]{Style.RESET_ALL}'
 
     def _on_script_stdout(line: str) -> None:
-        print(line, flush=True)
+        print(f'{prefix} {line}', flush=True)
         log.info('[脚本] %s', line)
         counter[0] += 1
         if counter[0] % 5 == 0:
-            print_message(f'正在运行 {display_name}')
+            print_message(f'正在运行 {display_name}', level='PASS')
 
     return _on_script_stdout
 
