@@ -358,11 +358,16 @@ def _cleanup_active_pm():
 
 
 def _on_exit_signal(signum, frame):
-    """控制台关闭/Ctrl+C 时快速退出。
+    """控制台关闭/Ctrl+C 时清理子进程并退出。
 
-    子进程清理由 Job Object (KILL_ON_JOB_CLOSE) 自动完成。
+    SIGINT/SIGTERM: 通过 sys.exit 触发正常 Python 退出（atexit/finally 可执行）。
+    SIGBREAK (Windows 控制台关闭): 通过 os._exit 快速退出，
+        子进程清理由 Job Object (KILL_ON_JOB_CLOSE) 自动保证。
     """
-    os._exit(1)
+    if sys.platform == 'win32' and signum == signal.SIGBREAK:
+        os._exit(1)
+    _cleanup_active_pm()
+    sys.exit(1)
 
 
 def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:

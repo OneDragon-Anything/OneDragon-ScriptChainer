@@ -448,6 +448,27 @@ class ProcessManager:
             ]
 
         kernel32 = ctypes.windll.kernel32
+
+        # 定义 Win32 API 签名，确保 64 位 HANDLE 不被截断
+        kernel32.CreateJobObjectW.argtypes = [
+            ctypes.wintypes.LPVOID, ctypes.wintypes.LPCWSTR,
+        ]
+        kernel32.CreateJobObjectW.restype = ctypes.wintypes.HANDLE
+
+        kernel32.SetInformationJobObject.argtypes = [
+            ctypes.wintypes.HANDLE, ctypes.c_int,
+            ctypes.wintypes.LPVOID, ctypes.wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = ctypes.wintypes.BOOL
+
+        kernel32.CloseHandle.argtypes = [ctypes.wintypes.HANDLE]
+        kernel32.CloseHandle.restype = ctypes.wintypes.BOOL
+
+        kernel32.AssignProcessToJobObject.argtypes = [
+            ctypes.wintypes.HANDLE, ctypes.wintypes.HANDLE,
+        ]
+        kernel32.AssignProcessToJobObject.restype = ctypes.wintypes.BOOL
+
         job = kernel32.CreateJobObjectW(None, None)
         if not job:
             return None
