@@ -17,12 +17,12 @@ def get_console_encoding() -> str:
 
 
 def decode_bytes(data: bytes, console_encoding: str) -> str:
-    """自动检测编码：先尝试控制台编码，再尝试 UTF-8，最后兜底。"""
-    try:
-        return data.decode(console_encoding)
-    except (UnicodeDecodeError, LookupError):
-        pass
+    """自动检测编码：先尝试 UTF-8，再尝试控制台编码，最后兜底。"""
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode(console_encoding)
+    except (UnicodeDecodeError, LookupError):
         return data.decode("utf-8", errors="replace")
