@@ -117,13 +117,14 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
 
     pm = ProcessManager()
     try:
+        display_name = script_config.game_display_name or script_config.script_display_name or PurePath(script_path).name
         success = pm.open_process(
             program=script_path,
             args=args_list,
             target_process=target,
             search_timeout=30,
             stdout_callback=_make_stdout_callback(
-                script_config.game_display_name or script_config.script_display_name
+                display_name=display_name,
             ),
         )
     except LauncherExitError as e:
