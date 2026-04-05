@@ -13,6 +13,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
+    SwitchButton,
 )
 
 from one_dragon.base.config.config_item import ConfigItem
@@ -225,6 +226,12 @@ class ScriptSettingCard(DraggableListItem):
                  enable_opacity_effect: bool = True):
         self.config: ScriptConfig = config
 
+        self.enable_switch = SwitchButton()
+        self.enable_switch.setOnText('')
+        self.enable_switch.setOffText('')
+        self.enable_switch.setChecked(config.enabled)
+        self.enable_switch.checkedChanged.connect(self.on_enable_changed)
+
         self.edit_btn: PushButton = PushButton(text='编辑')
         self.edit_btn.clicked.connect(self.on_edit_clicked)
 
@@ -239,6 +246,7 @@ class ScriptSettingCard(DraggableListItem):
             btn_list=[
                 self.edit_btn,
                 self.delete_btn,
+                self.enable_switch,
             ]
         )
 
@@ -252,6 +260,11 @@ class ScriptSettingCard(DraggableListItem):
         )
 
         self._update_display()
+
+    def on_enable_changed(self, checked: bool) -> None:
+        """开关状态变化"""
+        self.config.enabled = checked
+        self.value_changed.emit(self.config)
 
     def on_edit_clicked(self) -> None:
         """点击编辑，弹出窗口"""
@@ -276,6 +289,7 @@ class ScriptSettingCard(DraggableListItem):
         """更新卡片显示内容"""
         self.content_widget.setTitle(f'游戏 {self.config.game_display_name}')
         self.content_widget.setContent(f'脚本 {self.config.script_display_name}')
+        self.enable_switch.setChecked(self.config.enabled)
 
     def after_update_item(self) -> None:
         """DraggableListItem 更新后的钩子"""

@@ -50,6 +50,7 @@ class ScriptConfig:
     script_arguments: str = ''
     notify_start: bool = True
     notify_done: bool = True
+    enabled: bool = True
 
     # 不参与序列化的元数据
     idx: int = field(default=0, repr=False, compare=False)
