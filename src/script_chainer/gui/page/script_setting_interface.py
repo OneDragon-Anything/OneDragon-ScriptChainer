@@ -1,4 +1,5 @@
 import os
+import shlex
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -8,12 +9,15 @@ from qfluentwidgets import (
     Dialog,
     FluentIcon,
     HyperlinkCard,
+    InfoBar,
+    InfoBarPosition,
     LineEdit,
     MessageBoxBase,
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
     SwitchButton,
+    TransparentToolButton,
 )
 
 from one_dragon.base.config.config_item import ConfigItem
@@ -42,6 +46,32 @@ from script_chainer.config.script_config import (
     ScriptProcessName,
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
+from script_chainer.utils.process_utils import launch_in_terminal
+
+
+def _show_info(parent: QWidget, level: str, title: str, content: str, duration: int = 3000) -> None:
+    """显示 InfoBar 通知。"""
+    getattr(InfoBar, level)(
+        title=title,
+        content=content,
+        orient=Qt.Orientation.Horizontal,
+        isClosable=True,
+        position=InfoBarPosition.TOP,
+        duration=duration,
+        parent=parent,
+    )
+
+
+def _show_success(parent: QWidget, title: str, content: str) -> None:
+    _show_info(parent, 'success', title, content)
+
+
+def _show_warning(parent: QWidget, title: str, content: str) -> None:
+    _show_info(parent, 'warning', title, content)
+
+
+def _show_error(parent: QWidget, title: str, content: str) -> None:
+    _show_info(parent, 'error', title, content, duration=5000)
 
 
 class ScriptEditDialog(MessageBoxBase):
@@ -186,7 +216,7 @@ class ScriptEditDialog(MessageBoxBase):
         """获取可编辑下拉框的值，优先取 itemData，否则取用户输入的文本"""
         val = card.getValue()
         if val is not None:
-            return val
+            return str(val)
         return card.combo_box.currentText().strip()
 
     def get_config_value(self) -> ScriptConfig:
@@ -232,6 +262,10 @@ class ScriptSettingCard(DraggableListItem):
         self.enable_switch.setChecked(config.enabled)
         self.enable_switch.checkedChanged.connect(self.on_enable_changed)
 
+        self.debug_btn = TransparentToolButton(FluentIcon.PLAY, None)
+        self.debug_btn.setToolTip('调试运行')
+        self.debug_btn.clicked.connect(self.on_debug_clicked)
+
         self.edit_btn: PushButton = PushButton(text='编辑')
         self.edit_btn.clicked.connect(self.on_edit_clicked)
 
@@ -244,6 +278,7 @@ class ScriptSettingCard(DraggableListItem):
             content='脚本',
             parent=parent,
             btn_list=[
+                self.debug_btn,
                 self.edit_btn,
                 self.delete_btn,
                 self.enable_switch,
@@ -259,12 +294,39 @@ class ScriptSettingCard(DraggableListItem):
             enable_opacity_effect=enable_opacity_effect,
         )
 
+        self.content_widget: MultiPushSettingCard
         self._update_display()
 
     def on_enable_changed(self, checked: bool) -> None:
         """开关状态变化"""
         self.config.enabled = checked
         self.value_changed.emit(self.config)
+
+    def on_debug_clicked(self) -> None:
+        """调试运行当前脚本"""
+        invalid_msg = self.config.invalid_message
+        if invalid_msg is not None:
+            _show_warning(self.window(), '配置不合法', invalid_msg)
+            return
+
+        script_path = self.config.script_path
+        args_list: list[str] = []
+        args_str = self.config.script_arguments or ''
+        if args_str.strip():
+            args_list = shlex.split(args_str, posix=False)
+
+        display = os.path.basename(script_path)
+        cmd = [script_path] + args_list
+
+        try:
+            launch_in_terminal(
+                command=cmd,
+                cwd=os.path.dirname(script_path) or None,
+                title=f'调试 {display}',
+            )
+            _show_success(self.window(), '调试运行', f'已启动 {display}')
+        except Exception as e:
+            _show_error(self.window(), '启动失败', str(e))
 
     def on_edit_clicked(self) -> None:
         """点击编辑，弹出窗口"""
@@ -396,8 +458,9 @@ class ScriptSettingInterface(VerticalScrollInterface):
         dialog = Dialog("警告", "你确定要删除这个脚本链吗？\n删除之后无法恢复！", parent=self.window())
         dialog.setTitleBarVisible(False)
         if dialog.exec():
-            self.ctx.remove_script_chain_config(self.chosen_config)
-            self.chosen_config = None
+            if self.chosen_config is not None:
+                self.ctx.remove_script_chain_config(self.chosen_config)
+                self.chosen_config = None
             self.update_chain_combo_box()
             self.update_chain_display()
 
@@ -440,6 +503,9 @@ class ScriptSettingInterface(VerticalScrollInterface):
         # 清空现有列表并重建
         self.script_card_list.clear()
         self.script_list_widget.clear()
+
+        if self.chosen_config is None:
+            return
 
         for i, script_config in enumerate(self.chosen_config.script_list):
             card = ScriptSettingCard(script_config, index=i)
