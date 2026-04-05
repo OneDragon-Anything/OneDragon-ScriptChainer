@@ -1,4 +1,5 @@
 import os
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 
 from one_dragon.base.config.config_item import ConfigItem, get_config_item_from_enum
@@ -36,32 +37,46 @@ class GameProcessName(Enum):
 
 
 
+@dataclass
 class ScriptConfig:
 
-    def __init__(self,
-                 script_path: str,
-                 script_process_name: str,
-                 game_process_name: str,
-                 run_timeout_seconds: int,
-                 check_done: str,
-                 kill_script_after_done: bool,
-                 kill_game_after_done: bool,
-                 script_arguments: str,
-                 notify_start: bool,
-                 notify_done: bool,
-                 ):
+    script_path: str = ''
+    script_process_name: str = ''
+    game_process_name: str = ''
+    run_timeout_seconds: int = 3600
+    check_done: str = ''
+    kill_script_after_done: bool = True
+    kill_game_after_done: bool = True
+    script_arguments: str = ''
+    notify_start: bool = True
+    notify_done: bool = True
+    enabled: bool = True
 
-        self.idx: int = 0  # 下标 由外面控制
-        self.script_path: str = script_path  # 运行脚本的路径
-        self.script_process_name: str = script_process_name  # 运行脚本的真实进程名称
-        self.game_process_name: str = game_process_name  # 运行游戏的真实进程名称
-        self.run_timeout_seconds: int = run_timeout_seconds  # 脚本超时时间
-        self.check_done: str = check_done  # 怎么判断脚本已经运行完毕
-        self.kill_script_after_done: bool = kill_script_after_done  # 是否在运行完毕之后关闭脚本
-        self.kill_game_after_done: bool = kill_game_after_done  # 是否在运行完毕之后关闭游戏
-        self.script_arguments: str = script_arguments  # 运行脚本的附加参数
-        self.notify_start: bool = notify_start  # 是否在脚本开始时通知
-        self.notify_done: bool = notify_done  # 是否在脚本完成时通知
+    # 不参与序列化的元数据
+    idx: int = field(default=0, repr=False, compare=False)
+
+    def to_dict(self) -> dict:
+        """序列化为字典（排除 idx）。"""
+        d = asdict(self)
+        d.pop('idx', None)
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'ScriptConfig':
+        """从字典反序列化。"""
+        valid = {f.name for f in fields(cls)} - {'idx'}
+        return cls(**{k: v for k, v in data.items() if k in valid})
+
+    @classmethod
+    def create_default(cls) -> 'ScriptConfig':
+        """创建默认配置。"""
+        return cls(check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value)
+
+    def copy(self) -> 'ScriptConfig':
+        """深拷贝（保留 idx）。"""
+        new = self.from_dict(self.to_dict())
+        new.idx = self.idx
+        return new
 
     @property
     def script_display_name(self) -> str:
@@ -120,18 +135,7 @@ class ScriptChainConfig(YamlConfig):
         )
 
         self.script_list: list[ScriptConfig] = [
-            ScriptConfig(
-                script_path=i.get('script_path', ''),
-                script_process_name=i.get('script_process_name', ''),
-                game_process_name=i.get('game_process_name', ''),
-                run_timeout_seconds=i.get('run_timeout_seconds', 3600),
-                check_done=i.get('check_done', ''),
-                kill_script_after_done=i.get('kill_script_after_done', True),
-                kill_game_after_done=i.get('kill_game_after_done', True),
-                script_arguments=i.get('script_arguments', ''),
-                notify_start=i.get('notify_start', True),
-                notify_done=i.get('notify_done', True),
-            )
+            ScriptConfig.from_dict(i)
             for i in self.get('script_list', [])
         ]
         self.init_idx()
@@ -143,21 +147,7 @@ class ScriptChainConfig(YamlConfig):
 
     def save(self):
         self.data = {
-            'script_list': [
-                {
-                    'script_path': i.script_path,
-                    'script_process_name': i.script_process_name,
-                    'game_process_name': i.game_process_name,
-                    'run_timeout_seconds': i.run_timeout_seconds,
-                    'check_done': i.check_done,
-                    'kill_script_after_done': i.kill_script_after_done,
-                    'kill_game_after_done': i.kill_game_after_done,
-                    'script_arguments': i.script_arguments,
-                    'notify_start': i.notify_start,
-                    'notify_done': i.notify_done,
-                }
-                for i in self.script_list
-           ]
+            'script_list': [i.to_dict() for i in self.script_list]
         }
         YamlConfig.save(self)
 
@@ -167,18 +157,7 @@ class ScriptChainConfig(YamlConfig):
         Returns:
             新创建的 ScriptConfig。
         """
-        new_config = ScriptConfig(
-            script_path='',
-            script_process_name='',
-            game_process_name='',
-            run_timeout_seconds=3600,
-            check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value,
-            kill_script_after_done=True,
-            kill_game_after_done=True,
-            script_arguments='',
-            notify_start=True,
-            notify_done=True,
-        )
+        new_config = ScriptConfig.create_default()
         self.script_list.append(new_config)
         self.init_idx()
         self.save()

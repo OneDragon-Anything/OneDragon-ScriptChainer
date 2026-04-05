@@ -402,6 +402,9 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
         else:
             for i in range(len(chain_config.script_list)):
                 script_config = chain_config.script_list[i]
+                if not script_config.enabled:
+                    print_message(f'脚本已禁用 跳过 {script_config.script_display_name}')
+                    continue
                 if script_config.notify_start:
                     if ctx is not None:
                         ctx.push_service.push_async(
