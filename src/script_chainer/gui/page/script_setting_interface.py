@@ -133,19 +133,7 @@ class ScriptEditDialog(MessageBoxBase):
 
     def init_by_config(self, config: ScriptConfig):
         # 复制一个 防止修改了原来的
-        self.config = ScriptConfig(
-            script_path=config.script_path,
-            script_process_name=config.script_process_name,
-            game_process_name=config.game_process_name,
-            run_timeout_seconds=config.run_timeout_seconds,
-            check_done=config.check_done,
-            kill_game_after_done=config.kill_game_after_done,
-            kill_script_after_done=config.kill_script_after_done,
-            script_arguments=config.script_arguments,
-            notify_start=config.notify_start,
-            notify_done=config.notify_done,
-        )
-        self.config.idx = config.idx
+        self.config = config.copy()
 
         self.script_path_opt.setContent(config.script_path)
         self._set_editable_combo_value(self.script_process_name_opt, config.script_process_name)
@@ -201,19 +189,17 @@ class ScriptEditDialog(MessageBoxBase):
         return card.combo_box.currentText().strip()
 
     def get_config_value(self) -> ScriptConfig:
-        config = ScriptConfig(
-            script_path=self.script_path_opt.contentLabel.text(),
-            script_process_name=self._get_editable_combo_value(self.script_process_name_opt),
-            game_process_name=self._get_editable_combo_value(self.game_process_name_opt),
-            run_timeout_seconds=int(self.run_timeout_seconds_opt.getValue()),
-            check_done=self.check_done_opt.getValue(),
-            kill_script_after_done=self.kill_script_after_done_opt.btn.isChecked(),
-            kill_game_after_done=self.kill_game_after_done_opt.btn.isChecked(),
-            script_arguments=self.script_arguments_opt.getValue(),
-            notify_start=self.notify_start_opt.btn.isChecked(),
-            notify_done=self.notify_done_opt.btn.isChecked(),
-        )
-        config.idx = self.config.idx
+        config = self.config.copy()
+        config.script_path = self.script_path_opt.contentLabel.text()
+        config.script_process_name = self._get_editable_combo_value(self.script_process_name_opt)
+        config.game_process_name = self._get_editable_combo_value(self.game_process_name_opt)
+        config.run_timeout_seconds = int(self.run_timeout_seconds_opt.getValue())
+        config.check_done = str(self.check_done_opt.getValue())
+        config.kill_script_after_done = self.kill_script_after_done_opt.btn.isChecked()
+        config.kill_game_after_done = self.kill_game_after_done_opt.btn.isChecked()
+        config.script_arguments = self.script_arguments_opt.getValue()
+        config.notify_start = self.notify_start_opt.btn.isChecked()
+        config.notify_done = self.notify_done_opt.btn.isChecked()
 
         return config
 
