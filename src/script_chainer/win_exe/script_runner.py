@@ -71,22 +71,14 @@ def print_message(message: str, level="INFO"):
 
 
 def _make_stdout_callback(display_name: str) -> Callable[[str], None]:
-    """创建 stdout 回调闭包，同时满足行数和时间间隔时才打印运行状态。"""
-    counter = [0]
-    last_status_time = [0.0]
+    """创建 stdout 回调，为每行输出添加前缀。"""
     prefix = f'{Style.DIM}[{display_name}]{Style.RESET_ALL}'
 
-    def _on_script_stdout(line: str) -> None:
+    def _on_stdout(line: str) -> None:
         print(f'{prefix} {line}', flush=True)
         log.info('[脚本] %s', line)
-        counter[0] += 1
-        now = time.time()
-        if counter[0] >= 5 and now - last_status_time[0] >= 5:
-            print_message(f'正在运行 {display_name}', level='PASS')
-            counter[0] = 0
-            last_status_time[0] = now
 
-    return _on_script_stdout
+    return _on_stdout
 
 
 def _launch_script(script_config: ScriptConfig) -> ProcessManager:
@@ -123,9 +115,7 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
             args=args_list,
             target_process=target,
             search_timeout=30,
-            stdout_callback=_make_stdout_callback(
-                display_name=display_name,
-            ),
+            stdout_callback=_make_stdout_callback(display_name),
         )
     except LauncherExitError as e:
         log.error('启动器异常退出: %s', e, exc_info=True)
