@@ -310,21 +310,23 @@ class ScriptSettingCard(DraggableListItem):
             return
 
         script_path = self.config.script_path
-        args_list: list[str] = []
-        args_str = self.config.script_arguments or ''
-        if args_str.strip():
-            args_list = shlex.split(args_str, posix=False)
-
         display = os.path.basename(script_path)
-        cmd = [script_path] + args_list
 
         try:
+            args_list: list[str] = []
+            args_str = self.config.script_arguments or ''
+            if args_str.strip():
+                args_list = shlex.split(args_str, posix=False)
+
+            cmd = [script_path, *args_list]
             launch_in_terminal(
                 command=cmd,
                 cwd=os.path.dirname(script_path) or None,
                 title=f'调试 {display}',
             )
             _show_success(self.window(), '调试运行', f'已启动 {display}')
+        except ValueError as e:
+            _show_warning(self.window(), '参数不合法', str(e))
         except Exception as e:
             _show_error(self.window(), '启动失败', str(e))
 

@@ -57,6 +57,8 @@ def launch_in_terminal(
         wt_cmd = ['wt']
         if title:
             wt_cmd.extend(['--title', title])
+        if cwd:
+            wt_cmd.extend(['-d', cwd])
         wt_cmd.append('--')
         wt_cmd.extend(command)
         return subprocess.Popen(wt_cmd, cwd=cwd)
