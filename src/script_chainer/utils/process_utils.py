@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 from contextlib import suppress
 
 import psutil
@@ -32,3 +34,35 @@ def graceful_kill_popen(proc: subprocess.Popen, timeout: float = 3) -> None:
                 proc.kill()
                 with suppress(subprocess.TimeoutExpired):
                     proc.wait(timeout=timeout)
+
+
+def launch_in_terminal(
+    command: list[str],
+    cwd: str | None = None,
+    title: str | None = None,
+) -> subprocess.Popen:
+    """在终端窗口中启动命令。
+
+    优先使用 Windows Terminal (wt.exe)，不可用时回退到系统默认控制台。
+
+    Args:
+        command: 命令及参数列表。
+        cwd: 工作目录。
+        title: 终端窗口标题。
+
+    Returns:
+        启动的 Popen 对象。
+    """
+    if sys.platform == 'win32' and shutil.which('wt'):
+        wt_cmd = ['wt']
+        if title:
+            wt_cmd.extend(['--title', title])
+        if cwd:
+            wt_cmd.extend(['-d', cwd])
+        wt_cmd.append('--')
+        wt_cmd.extend(command)
+        return subprocess.Popen(wt_cmd, cwd=cwd)
+
+    # 回退：创建新控制台窗口
+    flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
+    return subprocess.Popen(command, cwd=cwd, creationflags=flags)

@@ -96,7 +96,7 @@ class ScriptConfig:
             return ''
 
     @property
-    def invalid_message(self) -> str:
+    def invalid_message(self) -> str | None:
         """
         当前配置的非法信息
         """
