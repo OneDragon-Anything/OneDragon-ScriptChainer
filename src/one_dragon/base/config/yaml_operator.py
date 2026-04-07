@@ -4,7 +4,6 @@ import yaml
 
 from one_dragon.utils import yaml_utils
 from one_dragon.utils.log_utils import log
-from one_dragon.utils.os_utils import get_resource_path
 
 cached_yaml_data: dict[str, tuple[float, dict]] = {}
 
@@ -29,7 +28,7 @@ class YamlOperator:
         :param file_path: yml文件的路径。不传入时认为是mock，用于测试。
         """
 
-        self.file_path: str | None = get_resource_path(file_path) if file_path else None
+        self.file_path: str | None = file_path
         """yml文件的路径"""
 
         self.data: dict = {}
