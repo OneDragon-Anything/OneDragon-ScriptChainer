@@ -10,7 +10,7 @@ _default_lang = 'cn'
 
 def get_translations(model: str, lang: str):
     """
-    加载语音
+    加载语言
     :param model: 模块 将ocr 界面 日志等翻译区分开来
     :param lang: 语言
     :return:

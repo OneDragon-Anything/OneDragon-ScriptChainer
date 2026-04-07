@@ -6,8 +6,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('../config/project.yml', 'config'),
-        ('../assets', 'assets')
+        ('../config/project.yml', 'resources/config'),
+        ('../assets', 'resources/assets')
     ],
     hiddenimports=[],
     hookspath=[],
