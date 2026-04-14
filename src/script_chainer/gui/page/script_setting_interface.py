@@ -221,7 +221,7 @@ class ScriptEditDialog(MessageBoxBase):
 
     def get_config_value(self) -> ScriptConfig:
         config = self.config.copy()
-        config.script_path = self.script_path_opt.contentLabel.text()
+        config.script_path = self.config.script_path
         config.script_process_name = self._get_editable_combo_value(self.script_process_name_opt)
         config.game_process_name = self._get_editable_combo_value(self.game_process_name_opt)
         config.run_timeout_seconds = int(self.run_timeout_seconds_opt.getValue())
