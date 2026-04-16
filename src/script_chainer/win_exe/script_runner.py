@@ -6,6 +6,7 @@ import os
 import shlex
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -21,6 +22,7 @@ from script_chainer.config.script_config import (
     ScriptConfig,
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
+from script_chainer.services.log_notifier import LogNotifier
 from script_chainer.services.process_manager import (
     LauncherExitError,
     ProcessInfo,
@@ -70,18 +72,31 @@ def print_message(message: str, level="INFO"):
     log.info(message)
 
 
-def _make_stdout_callback(display_name: str) -> Callable[[str], None]:
-    """创建 stdout 回调，为每行输出添加前缀。"""
+def _make_stdout_callback(
+    display_name: str,
+    log_notifier: LogNotifier | None = None,
+) -> Callable[[str], None]:
+    """创建 stdout 回调，为每行输出添加前缀。
+
+    Args:
+        display_name: 显示名称。
+        log_notifier: 可选的日志通知器，用于定时推送日志。
+    """
     prefix = f'{Style.DIM}[{display_name}]{Style.RESET_ALL}'
 
     def _on_stdout(line: str) -> None:
         print(f'{prefix} {line}', flush=True)
         log.info('[脚本] %s', line)
+        if log_notifier is not None:
+            log_notifier.add(line)
 
     return _on_stdout
 
 
-def _launch_script(script_config: ScriptConfig) -> ProcessManager:
+def _launch_script(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+) -> ProcessManager:
     """启动脚本子进程并返回 ProcessManager。
 
     使用 ProcessManager 封装子进程的启动，支持:
@@ -91,6 +106,7 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
 
     Args:
         script_config: 脚本配置。
+        log_notifier: 可选的日志通知器，用于定时推送日志。
 
     Returns:
         已初始化的 ProcessManager。
@@ -115,7 +131,10 @@ def _launch_script(script_config: ScriptConfig) -> ProcessManager:
             args=args_list,
             target_process=target,
             search_timeout=30,
-            stdout_callback=_make_stdout_callback(display_name),
+            stdout_callback=_make_stdout_callback(
+                display_name,
+                log_notifier=log_notifier,
+            ),
         )
     except LauncherExitError as e:
         log.error('启动器异常退出: %s', e, exc_info=True)
@@ -291,7 +310,10 @@ def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
                 log.error('关闭游戏进程失败', exc_info=True)
 
 
-def run_script(script_config: ScriptConfig) -> None:
+def run_script(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+) -> None:
     """运行单个脚本的完整生命周期。
 
     流程:
@@ -303,6 +325,7 @@ def run_script(script_config: ScriptConfig) -> None:
 
     Args:
         script_config: 脚本配置。
+        log_notifier: 可选的日志通知器，用于定时推送日志。
     """
     global _active_pm
 
@@ -314,7 +337,7 @@ def run_script(script_config: ScriptConfig) -> None:
     script_path = script_config.script_path
 
     # 1. 启动脚本子进程
-    pm = _launch_script(script_config)
+    pm = _launch_script(script_config, log_notifier=log_notifier)
     _active_pm = pm
 
     # 2. 等待子进程就绪
@@ -401,7 +424,23 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                             title=ctx.notify_config.title,
                             content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
                         )
-                run_script(script_config)
+
+                # 定时推送日志
+                log_notifier: LogNotifier | None = None
+                if ctx is not None and script_config.notify_log_interval > 0:
+                    log_notifier = LogNotifier(
+                        ctx=ctx,
+                        title=f'{ctx.notify_config.title} - {script_config.script_display_name} 日志',
+                        interval=script_config.notify_log_interval,
+                    )
+                    log_notifier.start()
+
+                try:
+                    run_script(script_config, log_notifier=log_notifier)
+                finally:
+                    if log_notifier is not None:
+                        log_notifier.stop()
+
                 if script_config.notify_done:
                     if ctx is not None:
                         ctx.push_service.push_async(

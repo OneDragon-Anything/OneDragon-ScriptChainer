@@ -160,6 +160,23 @@ class ScriptEditDialog(MessageBoxBase):
         )
         self.viewLayout.addWidget(self.notify_done_opt)
 
+        self.notify_log_interval_input = LineEdit()
+        self.notify_log_interval_input.setPlaceholderText('分钟')
+        self.notify_log_interval_input.setMaximumWidth(120)
+
+        self.notify_log_switch = SwitchButton()
+        self.notify_log_switch.setOnText('')
+        self.notify_log_switch.setOffText('')
+        self.notify_log_switch.checkedChanged.connect(self._on_notify_log_toggled)
+
+        self.notify_log_opt = MultiPushSettingCard(
+            icon=FluentIcon.SEND,
+            title='定时推送运行日志',
+            content='开启后按间隔将脚本命令行输出合并推送，最小0.5分钟',
+            btn_list=[self.notify_log_interval_input, self.notify_log_switch],
+        )
+        self.viewLayout.addWidget(self.notify_log_opt)
+
         self.init_by_config(config)
 
     def init_by_config(self, config: ScriptConfig):
@@ -176,6 +193,22 @@ class ScriptEditDialog(MessageBoxBase):
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
         self.notify_start_opt.setValue(config.notify_start, emit_signal=False)
         self.notify_done_opt.setValue(config.notify_done, emit_signal=False)
+
+        notify_log_enabled = config.notify_log_interval > 0
+        self.notify_log_switch.blockSignals(True)
+        self.notify_log_switch.setChecked(notify_log_enabled)
+        self.notify_log_switch.blockSignals(False)
+        interval_sec = config.notify_log_interval if notify_log_enabled else 300
+        minutes = interval_sec / 60
+        # 整数分钟则不显示小数
+        self.notify_log_interval_input.setText(
+            str(int(minutes)) if minutes == int(minutes) else str(minutes)
+        )
+        self.notify_log_interval_input.setEnabled(notify_log_enabled)
+
+    def _on_notify_log_toggled(self, checked: bool) -> None:
+        """日志推送开关切换时启用/禁用间隔输入框"""
+        self.notify_log_interval_input.setEnabled(checked)
 
     @staticmethod
     def _set_editable_combo_value(card: EditableComboBoxSettingCard, value: str) -> None:
@@ -231,6 +264,15 @@ class ScriptEditDialog(MessageBoxBase):
         config.script_arguments = self.script_arguments_opt.getValue()
         config.notify_start = self.notify_start_opt.btn.isChecked()
         config.notify_done = self.notify_done_opt.btn.isChecked()
+
+        if self.notify_log_switch.isChecked():
+            try:
+                minutes = float(self.notify_log_interval_input.text())
+                config.notify_log_interval = max(30, int(minutes * 60))
+            except (ValueError, TypeError):
+                config.notify_log_interval = 300
+        else:
+            config.notify_log_interval = 0
 
         return config
 
