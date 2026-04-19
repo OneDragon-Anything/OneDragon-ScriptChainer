@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QDialog, QFileDialog, QWidget
 from qfluentwidgets import (
     CaptionLabel,
     Dialog,
+    DoubleSpinBox,
     FluentIcon,
     HyperlinkCard,
     InfoBar,
@@ -149,20 +150,20 @@ class ScriptEditDialog(MessageBoxBase):
         self.notify_start_opt = SwitchSettingCard(
             icon=FluentIcon.MESSAGE,
             title='脚本开始时发送通知',
-            content='如果开启 则会在脚本开始时发送通知'
         )
         self.viewLayout.addWidget(self.notify_start_opt)
 
         self.notify_done_opt = SwitchSettingCard(
             icon=FluentIcon.MESSAGE,
             title='脚本结束时发送通知',
-            content='如果开启 则会在脚本结束时发送通知'
         )
         self.viewLayout.addWidget(self.notify_done_opt)
 
-        self.notify_log_interval_input = LineEdit()
-        self.notify_log_interval_input.setPlaceholderText('分钟')
-        self.notify_log_interval_input.setMaximumWidth(120)
+        self.notify_log_interval_input = DoubleSpinBox()
+        self.notify_log_interval_input.setRange(0.5, 60)
+        self.notify_log_interval_input.setSingleStep(0.5)
+        self.notify_log_interval_input.setDecimals(1)
+        self.notify_log_interval_input.setFixedWidth(140)
 
         self.notify_log_switch = SwitchButton()
         self.notify_log_switch.setOnText('')
@@ -172,7 +173,7 @@ class ScriptEditDialog(MessageBoxBase):
         self.notify_log_opt = MultiPushSettingCard(
             icon=FluentIcon.SEND,
             title='定时推送运行日志',
-            content='开启后按间隔将脚本命令行输出合并推送，最小0.5分钟',
+            content='按设定间隔（分钟）将命令行输出合并推送',
             btn_list=[self.notify_log_interval_input, self.notify_log_switch],
         )
         self.viewLayout.addWidget(self.notify_log_opt)
@@ -200,10 +201,9 @@ class ScriptEditDialog(MessageBoxBase):
         self.notify_log_switch.blockSignals(False)
         interval_sec = config.notify_log_interval if notify_log_enabled else 300
         minutes = interval_sec / 60
-        # 整数分钟则不显示小数
-        self.notify_log_interval_input.setText(
-            str(int(minutes)) if minutes == int(minutes) else str(minutes)
-        )
+        self.notify_log_interval_input.blockSignals(True)
+        self.notify_log_interval_input.setValue(minutes)
+        self.notify_log_interval_input.blockSignals(False)
         self.notify_log_interval_input.setEnabled(notify_log_enabled)
 
     def _on_notify_log_toggled(self, checked: bool) -> None:
@@ -266,11 +266,8 @@ class ScriptEditDialog(MessageBoxBase):
         config.notify_done = self.notify_done_opt.btn.isChecked()
 
         if self.notify_log_switch.isChecked():
-            try:
-                minutes = float(self.notify_log_interval_input.text().strip())
-                config.notify_log_interval = max(30, int(minutes * 60))
-            except (ValueError, TypeError, OverflowError):
-                config.notify_log_interval = 300
+            minutes = self.notify_log_interval_input.value()
+            config.notify_log_interval = max(30, int(minutes * 60))
         else:
             config.notify_log_interval = 0
 
