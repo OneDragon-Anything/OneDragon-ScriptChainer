@@ -115,4 +115,5 @@ class ScriptChainerContext:
         App关闭后进行的操作 关闭一切可能资源操作
         @return:
         """
+        self.push_service.after_app_shutdown()
         ONE_DRAGON_CONTEXT_EXECUTOR.shutdown(wait=False, cancel_futures=True)

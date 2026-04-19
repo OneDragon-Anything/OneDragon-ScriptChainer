@@ -61,6 +61,7 @@ class ScriptConfig:
     script_arguments: str = ''
     notify_start: bool = True
     notify_done: bool = True
+    notify_log_interval: int = 0
     enabled: bool = True
     attach_direction: str = AttachDirection.NONE
 
