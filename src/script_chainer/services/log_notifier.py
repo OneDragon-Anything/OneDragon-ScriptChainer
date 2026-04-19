@@ -45,6 +45,9 @@ class LogNotifier:
 
     def start(self) -> None:
         """启动定时推送。"""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
         self._stopped = False
         self._schedule_next()
 
