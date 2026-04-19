@@ -370,12 +370,34 @@ def _run_python_script(script_config: ScriptConfig) -> None:
         return
 
     print_message(f'执行 Python 脚本 {display_name}...')
+    old_argv = sys.argv[:]
+    old_sys_path = sys.path[:]
+    script_dir = os.path.dirname(os.path.abspath(script_path))
     try:
-        exec(compile(code, script_path, 'exec'), {'__builtins__': __builtins__})
+        sys.argv = [script_path]
+        if script_dir:
+            sys.path.insert(0, script_dir)
+        exec_globals = {
+            '__name__': '__main__',
+            '__file__': script_path,
+            '__package__': None,
+            '__spec__': None,
+            '__builtins__': __builtins__,
+        }
+        exec(compile(code, script_path, 'exec'), exec_globals)
         print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
+    except SystemExit as e:
+        if e.code in (0, None):
+            print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
+        else:
+            print_message(f'Python 脚本执行失败 {display_name}: exit={e.code}', level='ERROR')
+            log.error('Python 脚本通过 SystemExit 退出: %s', e.code)
     except Exception as e:
         print_message(f'Python 脚本执行失败 {display_name}: {e}', level='ERROR')
         log.error('Python 脚本执行失败', exc_info=True)
+    finally:
+        sys.argv = old_argv
+        sys.path[:] = old_sys_path
 
 
 def _cleanup_active_pm():
