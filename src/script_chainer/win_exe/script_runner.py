@@ -420,6 +420,7 @@ def _run_python_script(
     old_argv = sys.argv[:]
     old_sys_path = sys.path[:]
     old_stdout = sys.stdout
+    old_cwd = os.getcwd()
     script_dir = os.path.dirname(os.path.abspath(script_path))
     try:
         sys.argv = [script_path]
@@ -451,6 +452,8 @@ def _run_python_script(
         sys.stdout = old_stdout
         sys.argv = old_argv
         sys.path[:] = old_sys_path
+        with suppress(Exception):
+            os.chdir(old_cwd)
 
 
 def _cleanup_active_pm():

@@ -196,15 +196,14 @@ class ScriptChainConfig(YamlConfig):
         return path
 
     def _next_python_script_number(self) -> int:
-        """获取下一个可用的 Python 脚本编号（从已有文件名推算）。"""
+        """获取下一个可用的 Python 脚本编号（从目录中已有文件推算）。"""
         existing = set()
         prefix = f'{self.module_name}_'
-        for sc in self.script_list:
-            if sc.script_type == ScriptType.PYTHON and sc.script_path:
-                basename = Path(sc.script_path).name
-                if basename.startswith(prefix) and basename.endswith('.py'):
-                    with suppress(ValueError):
-                        existing.add(int(basename[len(prefix):-3]))
+        scripts_dir = self._get_python_scripts_dir()
+        for p in scripts_dir.iterdir():
+            if p.is_file() and p.name.startswith(prefix) and p.suffix == '.py':
+                with suppress(ValueError):
+                    existing.add(int(p.stem[len(prefix):]))
         n = 0
         while n in existing:
             n += 1
