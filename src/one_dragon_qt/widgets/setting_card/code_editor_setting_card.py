@@ -1,7 +1,14 @@
 import json
 
-from PySide6.QtCore import QRect, QRegularExpression, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QKeyEvent, QSyntaxHighlighter, QTextCharFormat
+from PySide6.QtCore import QRect, QRegularExpression, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QKeyEvent,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+)
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
@@ -493,10 +500,15 @@ class PythonCodeEditorDialog(BaseCodeEditorDialog):
         self.viewLayout.addWidget(self.editor)
 
     def _on_external_edit(self) -> None:
-        import os
-        if self._script_path and os.path.exists(self._script_path):
-            os.startfile(self._script_path)
-        self.reject()
+        if not self._script_path:
+            return
+        # 先将编辑器内容保存到磁盘
+        with open(self._script_path, 'w', encoding='utf-8') as f:
+            f.write(self.editor.toPlainText())
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(self._script_path)):
+            self.reject()
+        else:
+            log.error('打开外部编辑器失败: %s', self._script_path)
 
     def get_code(self) -> str:
         return self.editor.toPlainText()
