@@ -458,6 +458,9 @@ class PythonScriptSettingCard(DraggableListItem):
         if self.config.attach_direction == AttachDirection.UP:
             self.config.attach_direction = AttachDirection.NONE
         else:
+            if self.index <= 0:
+                _show_warning(self.window(), '无法挂靠', '上方没有可挂靠的脚本')
+                return
             self.config.attach_direction = AttachDirection.UP
         self._update_display()
         self.value_changed.emit(self.config)
@@ -468,6 +471,9 @@ class PythonScriptSettingCard(DraggableListItem):
         if self.config.attach_direction == AttachDirection.DOWN:
             self.config.attach_direction = AttachDirection.NONE
         else:
+            if self.index >= len(self.chain_config.script_list) - 1:
+                _show_warning(self.window(), '无法挂靠', '下方没有可挂靠的脚本')
+                return
             self.config.attach_direction = AttachDirection.DOWN
         self._update_display()
         self.value_changed.emit(self.config)
@@ -789,6 +795,17 @@ class ScriptSettingInterface(VerticalScrollInterface):
         """脚本配置删除"""
         if self.chosen_config is None:
             return
+
+        # 清理相邻脚本的挂靠关系，防止"漂移"到新邻居
+        script_list = self.chosen_config.script_list
+        if idx > 0:
+            prev = script_list[idx - 1]
+            if prev.script_type == ScriptType.PYTHON and prev.attach_direction == AttachDirection.DOWN:
+                prev.attach_direction = AttachDirection.NONE
+        if idx < len(script_list) - 1:
+            nxt = script_list[idx + 1]
+            if nxt.script_type == ScriptType.PYTHON and nxt.attach_direction == AttachDirection.UP:
+                nxt.attach_direction = AttachDirection.NONE
 
         self.chosen_config.delete_one(idx)
         self.update_chain_display()
