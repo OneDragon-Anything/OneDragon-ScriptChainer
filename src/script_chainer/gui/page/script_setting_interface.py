@@ -267,9 +267,9 @@ class ScriptEditDialog(MessageBoxBase):
 
         if self.notify_log_switch.isChecked():
             try:
-                minutes = float(self.notify_log_interval_input.text())
+                minutes = float(self.notify_log_interval_input.text().strip())
                 config.notify_log_interval = max(30, int(minutes * 60))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 config.notify_log_interval = 300
         else:
             config.notify_log_interval = 0

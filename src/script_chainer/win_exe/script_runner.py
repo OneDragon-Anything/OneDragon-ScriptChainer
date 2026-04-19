@@ -6,7 +6,6 @@ import os
 import shlex
 import signal
 import sys
-import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress

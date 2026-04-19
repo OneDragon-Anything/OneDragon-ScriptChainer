@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 #   [14:30:05]  /  2026-04-20T14:30:05
 _TIMESTAMP_RE = re.compile(
     r'^\[?\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}[.,]?\d*\]?\s*[|\-]?\s*'  # 日期+时间
-    r'|^\[?\d{2}:\d{2}:\d{2}[.,]\d+\]?\s*'                                        # 仅时间(带毫秒)
-    r'|^\[?\d{2}:\d{2}:\d{2}\]?\s*'                                                # 仅时间
+    r'|^\[?\d{2}:\d{2}:\d{2}[.,]\d+\]?\s*[|\-]?\s*'                                # 仅时间(带毫秒)
+    r'|^\[?\d{2}:\d{2}:\d{2}\]?\s*[|\-]?\s*'                                       # 仅时间
 )
 
 
@@ -74,11 +74,12 @@ class LogNotifier:
             if len(self._pool) == 0:
                 return
             items = list(self._pool.items)
+            try:
+                self._ctx.push_service.push_merged_async(
+                    title=self._title,
+                    items=items,
+                )
+            except Exception:
+                log.error('定时推送日志失败', exc_info=True)
+                return
             self._pool.clear()
-        try:
-            self._ctx.push_service.push_merged_async(
-                title=self._title,
-                items=items,
-            )
-        except Exception:
-            log.error('定时推送日志失败', exc_info=True)
