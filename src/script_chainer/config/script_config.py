@@ -36,10 +36,21 @@ class GameProcessName(Enum):
     MUMU = ConfigItem(label='MUMU模拟器', value='MuMuNxDevice.exe')
 
 
+class ScriptType:
+    EXTERNAL = 'external'
+    PYTHON = 'python'
+
+
+class AttachDirection:
+    NONE = ''
+    UP = 'up'
+    DOWN = 'down'
+
 
 @dataclass
 class ScriptConfig:
 
+    script_type: str = ScriptType.EXTERNAL
     script_path: str = ''
     script_process_name: str = ''
     game_process_name: str = ''
@@ -51,6 +62,7 @@ class ScriptConfig:
     notify_start: bool = True
     notify_done: bool = True
     enabled: bool = True
+    attach_direction: str = AttachDirection.NONE
 
     # 不参与序列化的元数据
     idx: int = field(default=0, repr=False, compare=False)
@@ -72,6 +84,15 @@ class ScriptConfig:
         """创建默认配置。"""
         return cls(check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value)
 
+    @classmethod
+    def create_python_default(cls) -> 'ScriptConfig':
+        """创建 Python 脚本类型的默认配置。"""
+        return cls(
+            script_type=ScriptType.PYTHON,
+            notify_start=False,
+            notify_done=False,
+        )
+
     def copy(self) -> 'ScriptConfig':
         """深拷贝（保留 idx）。"""
         new = self.from_dict(self.to_dict())
@@ -80,7 +101,9 @@ class ScriptConfig:
 
     @property
     def script_display_name(self) -> str:
-        return os.path.basename(self.script_path)
+        if self.script_path:
+            return os.path.basename(self.script_path)
+        return '(未设置)'
 
     @property
     def game_display_name(self) -> str:
@@ -97,9 +120,13 @@ class ScriptConfig:
 
     @property
     def invalid_message(self) -> str | None:
-        """
-        当前配置的非法信息
-        """
+        if self.script_type == ScriptType.PYTHON:
+            if not self.script_path:
+                return 'Python 脚本路径为空'
+            elif not os.path.exists(self.script_path):
+                return f'Python 脚本不存在 {self.script_path}'
+            return None
+
         if self.script_path is None or len(self.script_path) == 0:
             return '脚本路径为空'
         elif not os.path.exists(self.script_path):
@@ -140,6 +167,64 @@ class ScriptChainConfig(YamlConfig):
         ]
         self.init_idx()
 
+    def _get_script_chain_dir(self) -> str:
+        return os.path.dirname(self.file_path)
+
+    def _get_python_scripts_dir(self) -> str:
+        d = os.path.join(self._get_script_chain_dir(), 'scripts')
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def get_python_script_path(self, idx: int) -> str:
+        return os.path.join(self._get_python_scripts_dir(), f'{self.module_name}_{idx}.py')
+
+    def get_python_script_content(self, idx: int) -> str:
+        path = self.script_list[idx].script_path
+        if path and os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        return ''
+
+    def save_python_script(self, idx: int, code: str) -> str:
+        path = self.script_list[idx].script_path
+        if not path:
+            path = self.get_python_script_path(idx)
+            self.script_list[idx].script_path = path
+            self.save()
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(code)
+        return path
+
+    def _next_python_script_number(self) -> int:
+        """获取下一个可用的 Python 脚本编号（从已有文件名推算）。"""
+        existing = set()
+        prefix = f'{self.module_name}_py_'
+        for sc in self.script_list:
+            if sc.script_type == ScriptType.PYTHON and sc.script_path:
+                basename = os.path.basename(sc.script_path)
+                if basename.startswith(prefix) and basename.endswith('.py'):
+                    try:
+                        num = int(basename[len(prefix):-3])
+                        existing.add(num)
+                    except ValueError:
+                        pass
+        n = 0
+        while n in existing:
+            n += 1
+        return n
+
+    def add_python_script(self) -> ScriptConfig:
+        new_config = ScriptConfig.create_python_default()
+        self.script_list.append(new_config)
+        self.init_idx()
+        num = self._next_python_script_number()
+        path = os.path.join(self._get_python_scripts_dir(), f'{self.module_name}_py_{num}.py')
+        new_config.script_path = path
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('# Python 脚本\n')
+        self.save()
+        return new_config
+
     def init_idx(self) -> None:
         """初始化下标"""
         for i in range(len(self.script_list)):
@@ -172,18 +257,6 @@ class ScriptChainConfig(YamlConfig):
         if index < 0 or index >= len(self.script_list):
             return
         del self.script_list[index]
-        self.init_idx()
-        self.save()
-
-    def move_up(self, index: int) -> None:
-        """向上移动一个配置。
-
-        Args:
-            index: 配置下标。
-        """
-        if index <= 0 or index >= len(self.script_list):
-            return
-        self.script_list[index], self.script_list[index - 1] = self.script_list[index - 1], self.script_list[index]
         self.init_idx()
         self.save()
 

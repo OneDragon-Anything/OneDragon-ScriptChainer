@@ -16,9 +16,11 @@ from colorama import Fore, Style, init
 
 from one_dragon.utils import cmd_utils, os_utils
 from script_chainer.config.script_config import (
+    AttachDirection,
     CheckDoneMethods,
     ScriptChainConfig,
     ScriptConfig,
+    ScriptType,
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.services.process_manager import (
@@ -339,6 +341,43 @@ def run_script(script_config: ScriptConfig) -> None:
     _active_pm = None
 
 
+def _run_python_script(script_config: ScriptConfig) -> None:
+    """执行 Python 类型的脚本。
+
+    读取 .py 文件并用 exec() 在当前进程中执行。
+
+    Args:
+        script_config: 脚本配置（script_type == 'python'）。
+    """
+    script_path = script_config.script_path
+    display_name = script_config.script_display_name
+
+    invalid_msg = script_config.invalid_message
+    if invalid_msg is not None:
+        print_message(f'Python 脚本配置不合法 跳过运行 {invalid_msg}')
+        return
+
+    try:
+        with open(script_path, 'r', encoding='utf-8') as f:
+            code = f.read()
+    except Exception as e:
+        print_message(f'读取 Python 脚本失败 {display_name}: {e}', level='ERROR')
+        log.error('读取 Python 脚本失败', exc_info=True)
+        return
+
+    if not code or not code.strip():
+        print_message(f'Python 脚本为空 跳过 {display_name}')
+        return
+
+    print_message(f'执行 Python 脚本 {display_name}...')
+    try:
+        exec(compile(code, script_path, 'exec'), {'__builtins__': __builtins__})
+        print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
+    except Exception as e:
+        print_message(f'Python 脚本执行失败 {display_name}: {e}', level='ERROR')
+        log.error('Python 脚本执行失败', exc_info=True)
+
+
 def _cleanup_active_pm():
     """清理当前活跃的 ProcessManager 子进程。"""
     global _active_pm
@@ -395,22 +434,38 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                 if not script_config.enabled:
                     print_message(f'脚本已禁用 跳过 {script_config.script_display_name}')
                     continue
+
                 if script_config.notify_start:
                     if ctx is not None:
                         ctx.push_service.push_async(
                             title=ctx.notify_config.title,
                             content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
                         )
-                run_script(script_config)
+
+                if script_config.script_type == ScriptType.PYTHON:
+                    _run_python_script(script_config)
+                else:
+                    run_script(script_config)
+
                 if script_config.notify_done:
                     if ctx is not None:
                         ctx.push_service.push_async(
                             title=ctx.notify_config.title,
                             content=f'脚本链 {chain_name} 运行结束: {script_config.script_display_name}'
                         )
+
                 if i < len(chain_config.script_list) - 1:
-                    print_message('10秒后开始下一个脚本')
-                    time.sleep(10)
+                    next_config = chain_config.script_list[i + 1]
+                    # 当前脚本挂靠下方 或 下一个脚本挂靠上方 时跳过延迟
+                    skip_delay = (
+                        (script_config.script_type == ScriptType.PYTHON
+                         and script_config.attach_direction == AttachDirection.DOWN)
+                        or (next_config.script_type == ScriptType.PYTHON
+                            and next_config.attach_direction == AttachDirection.UP)
+                    )
+                    if not skip_delay:
+                        print_message('10秒后开始下一个脚本')
+                        time.sleep(10)
 
             print_message('已完成全部脚本')
 
