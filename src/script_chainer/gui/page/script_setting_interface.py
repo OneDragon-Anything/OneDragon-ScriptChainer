@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QDialog, QFileDialog, QWidget
 from qfluentwidgets import (
     CaptionLabel,
     Dialog,
+    DoubleSpinBox,
     FluentIcon,
     HyperlinkCard,
     InfoBar,
@@ -149,16 +150,33 @@ class ScriptEditDialog(MessageBoxBase):
         self.notify_start_opt = SwitchSettingCard(
             icon=FluentIcon.MESSAGE,
             title='脚本开始时发送通知',
-            content='如果开启 则会在脚本开始时发送通知'
         )
         self.viewLayout.addWidget(self.notify_start_opt)
 
         self.notify_done_opt = SwitchSettingCard(
             icon=FluentIcon.MESSAGE,
             title='脚本结束时发送通知',
-            content='如果开启 则会在脚本结束时发送通知'
         )
         self.viewLayout.addWidget(self.notify_done_opt)
+
+        self.notify_log_interval_input = DoubleSpinBox()
+        self.notify_log_interval_input.setRange(0.5, 60)
+        self.notify_log_interval_input.setSingleStep(0.5)
+        self.notify_log_interval_input.setDecimals(1)
+        self.notify_log_interval_input.setFixedWidth(140)
+
+        self.notify_log_switch = SwitchButton()
+        self.notify_log_switch.setOnText('')
+        self.notify_log_switch.setOffText('')
+        self.notify_log_switch.checkedChanged.connect(self._on_notify_log_toggled)
+
+        self.notify_log_opt = MultiPushSettingCard(
+            icon=FluentIcon.SEND,
+            title='定时推送运行日志',
+            content='按设定间隔（分钟）将命令行输出合并推送',
+            btn_list=[self.notify_log_interval_input, self.notify_log_switch],
+        )
+        self.viewLayout.addWidget(self.notify_log_opt)
 
         self.init_by_config(config)
 
@@ -176,6 +194,21 @@ class ScriptEditDialog(MessageBoxBase):
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
         self.notify_start_opt.setValue(config.notify_start, emit_signal=False)
         self.notify_done_opt.setValue(config.notify_done, emit_signal=False)
+
+        notify_log_enabled = config.notify_log_interval > 0
+        self.notify_log_switch.blockSignals(True)
+        self.notify_log_switch.setChecked(notify_log_enabled)
+        self.notify_log_switch.blockSignals(False)
+        interval_sec = config.notify_log_interval if notify_log_enabled else 300
+        minutes = interval_sec / 60
+        self.notify_log_interval_input.blockSignals(True)
+        self.notify_log_interval_input.setValue(minutes)
+        self.notify_log_interval_input.blockSignals(False)
+        self.notify_log_interval_input.setEnabled(notify_log_enabled)
+
+    def _on_notify_log_toggled(self, checked: bool) -> None:
+        """日志推送开关切换时启用/禁用间隔输入框"""
+        self.notify_log_interval_input.setEnabled(checked)
 
     @staticmethod
     def _set_editable_combo_value(card: EditableComboBoxSettingCard, value: str) -> None:
@@ -231,6 +264,12 @@ class ScriptEditDialog(MessageBoxBase):
         config.script_arguments = self.script_arguments_opt.getValue()
         config.notify_start = self.notify_start_opt.btn.isChecked()
         config.notify_done = self.notify_done_opt.btn.isChecked()
+
+        if self.notify_log_switch.isChecked():
+            minutes = self.notify_log_interval_input.value()
+            config.notify_log_interval = max(30, int(minutes * 60))
+        else:
+            config.notify_log_interval = 0
 
         return config
 
