@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from typing import TYPE_CHECKING
 
@@ -8,6 +9,15 @@ from one_dragon.utils.log_utils import log
 
 if TYPE_CHECKING:
     from script_chainer.context.script_chainer_context import ScriptChainerContext
+
+# 匹配常见日志时间戳前缀，例如:
+#   [14:30:05.123]  /  [2026-04-20 14:30:05.123]  /  2026-04-20 14:30:05,123 |
+#   [14:30:05]  /  2026-04-20T14:30:05
+_TIMESTAMP_RE = re.compile(
+    r'^\[?\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}[.,]?\d*\]?\s*[|\-]?\s*'  # 日期+时间
+    r'|^\[?\d{2}:\d{2}:\d{2}[.,]\d+\]?\s*'                                        # 仅时间(带毫秒)
+    r'|^\[?\d{2}:\d{2}:\d{2}\]?\s*'                                                # 仅时间
+)
 
 
 class LogNotifier:
@@ -28,9 +38,10 @@ class LogNotifier:
         self._stopped = False
 
     def add(self, content: str) -> None:
-        """线程安全地向通知池添加一行日志。"""
+        """线程安全地向通知池添加一行日志（自动清洗时间戳前缀）。"""
+        cleaned = _TIMESTAMP_RE.sub('', content)
         with self._lock:
-            self._pool.add(content)
+            self._pool.add(cleaned)
 
     def start(self) -> None:
         """启动定时推送。"""
