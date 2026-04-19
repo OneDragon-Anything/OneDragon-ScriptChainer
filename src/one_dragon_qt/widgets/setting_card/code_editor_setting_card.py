@@ -15,7 +15,6 @@ from qfluentwidgets import (
     ToolButton,
     ToolTipFilter,
     ToolTipPosition,
-    TransparentToolButton,
     isDarkTheme,
 )
 
@@ -142,6 +141,7 @@ class CodeEditor(PlainTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setMinimumSize(800, 400)
 
         self.line_number_area = LineNumberArea(self)
 
@@ -293,8 +293,8 @@ class CodeEditor(PlainTextEdit):
         super().keyPressEvent(e)
 
 
-class CodeEditorMixin:
-    """代码编辑器功能混入类，提供通用的编辑器操作方法"""
+class JsonEditorMixin:
+    """Json编辑器功能混入类，提供通用操作方法"""
 
     def _format_json(self):
         """格式化 JSON 内容"""
@@ -365,8 +365,8 @@ class CodeEditorMixin:
         self.template_btn.installEventFilter(ToolTipFilter(self.template_btn, showDelay=500, position=ToolTipPosition.TOP))
 
         # 创建模板变量菜单，设置父级为按钮的窗口而不是对话框本身
-        parent_window = self.parent_window if hasattr(self, 'parent_window') and self.parent_window else self
-        self.template_menu = TemplateVariableMenu(parent=parent_window, editor=self.editor)
+        parent_widget = self.parent_widget if hasattr(self, 'parent_widget') and self.parent_widget else self
+        self.template_menu = TemplateVariableMenu(parent=parent_widget, editor=self.editor)
 
         # 连接模板菜单信号
         self.template_menu.variable_selected.connect(self._insert_variable)
@@ -410,7 +410,7 @@ class BaseCodeEditorDialog(MessageBoxBase):
         return self.editor.toPlainText()
 
 
-class CodeEditorDialog(BaseCodeEditorDialog, CodeEditorMixin):
+class JsonCodeEditorDialog(BaseCodeEditorDialog, JsonEditorMixin):
     """JSON 代码编辑器弹窗对话框"""
 
     def __init__(self, parent=None, title: str = "代码编辑器", adapter=None):
@@ -477,7 +477,6 @@ class PythonCodeEditorDialog(BaseCodeEditorDialog):
         super().__init__(parent=parent, title=title,
                          placeholder="# 输入 Python 脚本",
                          initial_code=initial_code)
-        self.editor.setMinimumSize(800, 400)
         self.yesButton.setText(gt("保存"))
         self.cancelButton.setText(gt("取消"))
 
@@ -659,7 +658,7 @@ class PythonHighlighter(QSyntaxHighlighter):
                 self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
 
 
-class CodeEditorSettingCard(SettingCardBase, AdapterInitMixin, CodeEditorMixin):
+class CodeEditorSettingCard(SettingCardBase, AdapterInitMixin, JsonEditorMixin):
     """ 带代码编辑器的设置卡片 """
 
     value_changed = Signal(str)
@@ -681,7 +680,7 @@ class CodeEditorSettingCard(SettingCardBase, AdapterInitMixin, CodeEditorMixin):
         )
         AdapterInitMixin.__init__(self)
 
-        self.parent_window = parent
+        self.parent_widget = parent
 
         # 首先创建编辑器
         self.editor = PlainTextEdit(self)
@@ -755,8 +754,8 @@ class CodeEditorSettingCard(SettingCardBase, AdapterInitMixin, CodeEditorMixin):
     def _pop_editor(self):
         """弹出代码编辑器窗口"""
         # 传递适配器给对话框，让对话框直接操作适配器
-        dialog = CodeEditorDialog(
-            parent=self.parent_window,
+        dialog = JsonCodeEditorDialog(
+            parent=self.window(),
             title="JSON 代码编辑器",
             adapter=self.adapter
         )
