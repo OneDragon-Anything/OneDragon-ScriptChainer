@@ -1,6 +1,7 @@
-import os
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
+from pathlib import Path
 
 from one_dragon.base.config.config_item import ConfigItem, get_config_item_from_enum
 from one_dragon.base.config.yaml_config import YamlConfig
@@ -103,7 +104,7 @@ class ScriptConfig:
     @property
     def script_display_name(self) -> str:
         if self.script_path:
-            return os.path.basename(self.script_path)
+            return Path(self.script_path).name
         return '(未设置)'
 
     @property
@@ -124,13 +125,13 @@ class ScriptConfig:
         if self.script_type == ScriptType.PYTHON:
             if not self.script_path:
                 return 'Python 脚本路径为空'
-            elif not os.path.exists(self.script_path):
+            elif not Path(self.script_path).exists():
                 return f'Python 脚本不存在 {self.script_path}'
             return None
 
         if self.script_path is None or len(self.script_path) == 0:
             return '脚本路径为空'
-        elif not os.path.exists(self.script_path):
+        elif not Path(self.script_path).exists():
             return f'脚本路径不存在 {self.script_path}'
         elif get_config_item_from_enum(CheckDoneMethods, self.check_done) is None:
             return f'检查完成方式非法 {self.check_done}'
@@ -168,22 +169,21 @@ class ScriptChainConfig(YamlConfig):
         ]
         self.init_idx()
 
-    def _get_script_chain_dir(self) -> str:
-        return os.path.dirname(self.file_path)
+    def _get_script_chain_dir(self) -> Path:
+        return Path(self.file_path).parent
 
-    def _get_python_scripts_dir(self) -> str:
-        d = os.path.join(self._get_script_chain_dir(), 'scripts')
-        os.makedirs(d, exist_ok=True)
+    def _get_python_scripts_dir(self) -> Path:
+        d = self._get_script_chain_dir() / 'scripts'
+        d.mkdir(parents=True, exist_ok=True)
         return d
 
     def get_python_script_path(self, idx: int) -> str:
-        return os.path.join(self._get_python_scripts_dir(), f'{self.module_name}_{idx}.py')
+        return str(self._get_python_scripts_dir() / f'{self.module_name}_{idx}.py')
 
     def get_python_script_content(self, idx: int) -> str:
-        path = self.script_list[idx].script_path
-        if path and os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
+        p = Path(self.script_list[idx].script_path) if self.script_list[idx].script_path else None
+        if p and p.exists():
+            return p.read_text(encoding='utf-8')
         return ''
 
     def save_python_script(self, idx: int, code: str) -> str:
@@ -192,23 +192,19 @@ class ScriptChainConfig(YamlConfig):
             path = self.get_python_script_path(idx)
             self.script_list[idx].script_path = path
             self.save()
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(code)
+        Path(path).write_text(code, encoding='utf-8')
         return path
 
     def _next_python_script_number(self) -> int:
         """获取下一个可用的 Python 脚本编号（从已有文件名推算）。"""
         existing = set()
-        prefix = f'{self.module_name}_py_'
+        prefix = f'{self.module_name}_'
         for sc in self.script_list:
             if sc.script_type == ScriptType.PYTHON and sc.script_path:
-                basename = os.path.basename(sc.script_path)
+                basename = Path(sc.script_path).name
                 if basename.startswith(prefix) and basename.endswith('.py'):
-                    try:
-                        num = int(basename[len(prefix):-3])
-                        existing.add(num)
-                    except ValueError:
-                        pass
+                    with suppress(ValueError):
+                        existing.add(int(basename[len(prefix):-3]))
         n = 0
         while n in existing:
             n += 1
@@ -219,10 +215,9 @@ class ScriptChainConfig(YamlConfig):
         self.script_list.append(new_config)
         self.init_idx()
         num = self._next_python_script_number()
-        path = os.path.join(self._get_python_scripts_dir(), f'{self.module_name}_py_{num}.py')
-        new_config.script_path = path
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write('# Python 脚本\n')
+        p = self._get_python_scripts_dir() / f'{self.module_name}_{num}.py'
+        new_config.script_path = str(p)
+        p.write_text('# Python 脚本\n', encoding='utf-8')
         self.save()
         return new_config
 
@@ -257,6 +252,11 @@ class ScriptChainConfig(YamlConfig):
         """
         if index < 0 or index >= len(self.script_list):
             return
+        config = self.script_list[index]
+        # Python 脚本删除时同时移除对应的 .py 文件
+        if config.script_type == ScriptType.PYTHON and config.script_path:
+            with suppress(OSError):
+                Path(config.script_path).unlink()
         del self.script_list[index]
         self.init_idx()
         self.save()

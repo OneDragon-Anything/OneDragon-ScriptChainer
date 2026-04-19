@@ -526,14 +526,19 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                         log_notifier.stop()
                         log_notifier = None
 
-                    # 前置脚本（DOWN）用被挂靠脚本的配置创建 notifier
+                    # 前置脚本（DOWN）沿挂靠链找到最终目标脚本的配置创建 notifier
                     notifier_config = script_config
                     if (
                         script_config.script_type == ScriptType.PYTHON
                         and script_config.attach_direction == AttachDirection.DOWN
-                        and i + 1 < len(chain_config.script_list)
                     ):
-                        notifier_config = chain_config.script_list[i + 1]
+                        for j in range(i + 1, len(chain_config.script_list)):
+                            notifier_config = chain_config.script_list[j]
+                            if not (
+                                notifier_config.script_type == ScriptType.PYTHON
+                                and notifier_config.attach_direction == AttachDirection.DOWN
+                            ):
+                                break
 
                     if ctx is not None and notifier_config.notify_log_interval > 0:
                         log_notifier = LogNotifier(
