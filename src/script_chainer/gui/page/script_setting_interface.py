@@ -807,16 +807,8 @@ class ScriptSettingInterface(VerticalScrollInterface):
         top = [4] * n
         bottom = [4] * n
 
-        for i, card in enumerate(self.script_card_list):
-            config = card.data
-            if not isinstance(config, ScriptConfig):
-                continue
-            if config.script_type != ScriptType.PYTHON:
-                continue
-            if config.attach_direction == AttachDirection.UP and i > 0:
-                top[i] = 0
-                bottom[i - 1] = 0
-            elif config.attach_direction == AttachDirection.DOWN and i < n - 1:
+        for i in range(n):
+            if self.chosen_config.has_next_attached(i):
                 bottom[i] = 0
                 top[i + 1] = 0
 

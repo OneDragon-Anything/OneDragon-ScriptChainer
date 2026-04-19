@@ -285,3 +285,39 @@ class ScriptChainConfig(YamlConfig):
         self.script_list[config.idx] = config
         self.init_idx()
         self.save()
+
+    def is_attached_to_prev(self, idx: int) -> bool:
+        """判断第 idx 个脚本是否挂靠到前一个脚本。
+
+        满足以下任一条件即视为挂靠：
+        - 当前脚本是 Python 且 attach_direction == UP
+        - 前一个脚本是 Python 且 attach_direction == DOWN
+        """
+        if idx <= 0 or idx >= len(self.script_list):
+            return False
+        cur = self.script_list[idx]
+        prev = self.script_list[idx - 1]
+        return (
+            (cur.script_type == ScriptType.PYTHON
+             and cur.attach_direction == AttachDirection.UP)
+            or (prev.script_type == ScriptType.PYTHON
+                and prev.attach_direction == AttachDirection.DOWN)
+        )
+
+    def has_next_attached(self, idx: int) -> bool:
+        """判断第 idx 个脚本之后是否有挂靠脚本。
+
+        满足以下任一条件即视为有挂靠：
+        - 当前脚本是 Python 且 attach_direction == DOWN
+        - 下一个脚本是 Python 且 attach_direction == UP
+        """
+        if idx < 0 or idx >= len(self.script_list) - 1:
+            return False
+        cur = self.script_list[idx]
+        nxt = self.script_list[idx + 1]
+        return (
+            (cur.script_type == ScriptType.PYTHON
+             and cur.attach_direction == AttachDirection.DOWN)
+            or (nxt.script_type == ScriptType.PYTHON
+                and nxt.attach_direction == AttachDirection.UP)
+        )

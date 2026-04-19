@@ -36,6 +36,27 @@ from script_chainer.services.process_manager import (
 _active_pm: ProcessManager | None = None
 
 
+class _TeeWriter:
+    """包装 stdout，将每行输出同时写入 LogNotifier。"""
+
+    def __init__(self, original: object, notifier: LogNotifier) -> None:
+        self._original = original
+        self._notifier = notifier
+
+    def write(self, s: str) -> int:
+        result = self._original.write(s)
+        stripped = s.strip()
+        if stripped:
+            self._notifier.add(stripped)
+        return result
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    def __getattr__(self, name: str):
+        return getattr(self._original, name)
+
+
 def get_logger():
     logger = logging.getLogger('OneDragon')
     logger.handlers.clear()
@@ -363,13 +384,17 @@ def run_script(
     _active_pm = None
 
 
-def _run_python_script(script_config: ScriptConfig) -> None:
+def _run_python_script(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+) -> None:
     """执行 Python 类型的脚本。
 
     读取 .py 文件并用 exec() 在当前进程中执行。
 
     Args:
         script_config: 脚本配置（script_type == 'python'）。
+        log_notifier: 可选的日志通知器，用于定时推送日志。
     """
     script_path = script_config.script_path
     display_name = script_config.script_display_name
@@ -394,11 +419,16 @@ def _run_python_script(script_config: ScriptConfig) -> None:
     print_message(f'执行 Python 脚本 {display_name}...')
     old_argv = sys.argv[:]
     old_sys_path = sys.path[:]
+    old_stdout = sys.stdout
     script_dir = os.path.dirname(os.path.abspath(script_path))
     try:
         sys.argv = [script_path]
         if script_dir:
             sys.path.insert(0, script_dir)
+
+        if log_notifier is not None:
+            sys.stdout = _TeeWriter(old_stdout, log_notifier)
+
         exec_globals = {
             '__name__': '__main__',
             '__file__': script_path,
@@ -418,6 +448,7 @@ def _run_python_script(script_config: ScriptConfig) -> None:
         print_message(f'Python 脚本执行失败 {display_name}: {e}', level='ERROR')
         log.error('Python 脚本执行失败', exc_info=True)
     finally:
+        sys.stdout = old_stdout
         sys.argv = old_argv
         sys.path[:] = old_sys_path
 
@@ -473,6 +504,8 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
         if not chain_config.is_file_exists():
             print_message(f'脚本链配置不存在 {chain_name}', "ERROR")
         else:
+            log_notifier: LogNotifier | None = None
+
             for i in range(len(chain_config.script_list)):
                 script_config = chain_config.script_list[i]
                 if not script_config.enabled:
@@ -486,24 +519,43 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                             content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
                         )
 
-                # 定时推送日志
-                log_notifier: LogNotifier | None = None
-                if ctx is not None and script_config.notify_log_interval > 0:
-                    log_notifier = LogNotifier(
-                        ctx=ctx,
-                        title=f'{ctx.notify_config.title} - {script_config.script_display_name} 日志',
-                        interval=script_config.notify_log_interval,
-                    )
-                    log_notifier.start()
+                # 判断是否挂靠到上一个脚本（复用其 log_notifier）
+                # 非挂靠脚本：需要自己管理 log_notifier
+                if not chain_config.is_attached_to_prev(i):
+                    if log_notifier is not None:
+                        log_notifier.stop()
+                        log_notifier = None
+
+                    # 前置脚本（DOWN）用被挂靠脚本的配置创建 notifier
+                    notifier_config = script_config
+                    if (
+                        script_config.script_type == ScriptType.PYTHON
+                        and script_config.attach_direction == AttachDirection.DOWN
+                        and i + 1 < len(chain_config.script_list)
+                    ):
+                        notifier_config = chain_config.script_list[i + 1]
+
+                    if ctx is not None and notifier_config.notify_log_interval > 0:
+                        log_notifier = LogNotifier(
+                            ctx=ctx,
+                            title=f'{ctx.notify_config.title} - {notifier_config.script_display_name} 日志',
+                            interval=notifier_config.notify_log_interval,
+                        )
+                        log_notifier.start()
 
                 try:
                     if script_config.script_type == ScriptType.PYTHON:
-                        _run_python_script(script_config)
+                        _run_python_script(script_config, log_notifier=log_notifier)
                     else:
                         run_script(script_config, log_notifier=log_notifier)
-                finally:
+                except Exception:
+                    log.error('脚本执行异常', exc_info=True)
+
+                # 没有下一个挂靠脚本时，停止 log_notifier
+                if not chain_config.has_next_attached(i):
                     if log_notifier is not None:
                         log_notifier.stop()
+                        log_notifier = None
 
                 if script_config.notify_done:
                     if ctx is not None:
@@ -513,17 +565,13 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                         )
 
                 if i < len(chain_config.script_list) - 1:
-                    next_config = chain_config.script_list[i + 1]
-                    # 当前脚本挂靠下方 或 下一个脚本挂靠上方 时跳过延迟
-                    skip_delay = (
-                        (script_config.script_type == ScriptType.PYTHON
-                         and script_config.attach_direction == AttachDirection.DOWN)
-                        or (next_config.script_type == ScriptType.PYTHON
-                            and next_config.attach_direction == AttachDirection.UP)
-                    )
-                    if not skip_delay:
+                    if not chain_config.has_next_attached(i):
                         print_message('10秒后开始下一个脚本')
                         time.sleep(10)
+
+            # 确保最后的 log_notifier 被停止
+            if log_notifier is not None:
+                log_notifier.stop()
 
             print_message('已完成全部脚本')
 
