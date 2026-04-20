@@ -180,9 +180,6 @@ class ScriptChainConfig(YamlConfig):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def get_python_script_path(self, idx: int) -> str:
-        return str(self._get_python_scripts_dir() / f'{self.module_name}_{idx}.py')
-
     def get_python_script_content(self, idx: int) -> str:
         p = Path(self.script_list[idx].script_path) if self.script_list[idx].script_path else None
         if p and p.exists():
@@ -192,7 +189,8 @@ class ScriptChainConfig(YamlConfig):
     def save_python_script(self, idx: int, code: str) -> str:
         path = self.script_list[idx].script_path
         if not path:
-            path = self.get_python_script_path(idx)
+            num = self._next_python_script_number()
+            path = str(self._get_python_scripts_dir() / f'{self.module_name}_{num}.py')
             self.script_list[idx].script_path = path
             self.save()
         Path(path).write_text(code, encoding='utf-8')
