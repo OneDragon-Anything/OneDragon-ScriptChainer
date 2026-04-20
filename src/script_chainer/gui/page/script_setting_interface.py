@@ -1,5 +1,7 @@
 import os
 import shlex
+import shutil
+import sys
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon
@@ -576,9 +578,16 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         if not path or not os.path.exists(path):
             _show_warning(self.window(), '无法运行', 'Python 脚本文件不存在')
             return
+        if getattr(sys, 'frozen', False):
+            python = shutil.which('python') or shutil.which('python3')
+            if not python:
+                _show_warning(self.window(), '无法调试', '未找到系统 Python，请安装 Python 并添加到 PATH')
+                return
+        else:
+            python = sys.executable
         try:
             launch_in_terminal(
-                command=['python', path],
+                command=[python, path],
                 cwd=os.path.dirname(path) or None,
                 title=f'运行 {os.path.basename(path)}',
             )
