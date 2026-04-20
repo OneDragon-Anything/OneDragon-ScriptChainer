@@ -255,10 +255,14 @@ class ScriptChainConfig(YamlConfig):
         if index < 0 or index >= len(self.script_list):
             return
         config = self.script_list[index]
-        # Python 脚本删除时同时移除对应的 .py 文件
+        # Python 脚本删除时同时移除对应的 .py 文件（仅限 scripts/ 目录内）
         if config.script_type == ScriptType.PYTHON and config.script_path:
-            with suppress(OSError):
-                Path(config.script_path).unlink()
+            with suppress(OSError, ValueError):
+                script_file = Path(config.script_path).resolve()
+                scripts_dir = self._get_python_scripts_dir().resolve()
+                script_file.relative_to(scripts_dir)
+                if script_file.is_file():
+                    script_file.unlink()
         del self.script_list[index]
         self.init_idx()
         self.save()
