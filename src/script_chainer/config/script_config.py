@@ -29,7 +29,7 @@ class ScriptProcessName(Enum):
 class GameProcessName(Enum):
 
     GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='YuanShen.exe')
-    GENSHIN_IMPACT_GLOBAL = ConfigItem(label='原神（国际服）', value='GenshinImpact.exe')
+    GENSHIN_IMPACT_GLOBAL = ConfigItem(label='原神 · 国际服', value='GenshinImpact.exe')
     STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
     ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
     HONKAI_IMPACT_CN = ConfigItem(label='崩坏3', value='BH3.exe')
@@ -51,6 +51,7 @@ class AttachDirection:
 @dataclass
 class ScriptConfig:
 
+    display_name: str = ''
     script_type: str = ScriptType.EXTERNAL
     script_path: str = ''
     script_process_name: str = ''
@@ -103,6 +104,8 @@ class ScriptConfig:
 
     @property
     def script_display_name(self) -> str:
+        if self.display_name:
+            return self.display_name
         if self.script_path:
             return Path(self.script_path).name
         return '(未设置)'
