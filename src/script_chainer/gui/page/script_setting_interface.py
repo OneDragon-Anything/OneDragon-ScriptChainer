@@ -522,6 +522,7 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             parent=parent,
         )
         self.content_widget: MultiPushSettingCard = content_widget
+        self._update_display()
 
     def _get_title(self) -> str:
         attach_label = self._get_attach_label()
