@@ -221,6 +221,22 @@ class ScriptChainConfig(YamlConfig):
         self.save()
         return new_config
 
+    def add_python_script_from_file(self, file_path: str) -> ScriptConfig:
+        """添加一个引用外部文件的 Python 脚本配置。
+
+        Args:
+            file_path: 外部 .py 文件的路径。
+
+        Returns:
+            新创建的 ScriptConfig。
+        """
+        new_config = ScriptConfig.create_python_default()
+        new_config.script_path = file_path
+        self.script_list.append(new_config)
+        self.init_idx()
+        self.save()
+        return new_config
+
     def init_idx(self) -> None:
         """初始化下标"""
         for i in range(len(self.script_list)):

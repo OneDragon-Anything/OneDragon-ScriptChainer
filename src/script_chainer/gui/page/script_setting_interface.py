@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
+    Action,
     CaptionLabel,
     Dialog,
     DoubleSpinBox,
@@ -14,8 +15,8 @@ from qfluentwidgets import (
     InfoBarPosition,
     LineEdit,
     MessageBoxBase,
-    PrimaryPushButton,
-    PushButton,
+    PrimaryDropDownPushButton,
+    RoundMenu,
     SubtitleLabel,
     SwitchButton,
     TransparentToolButton,
@@ -316,7 +317,8 @@ class ScriptCardMixin:
         self.enable_switch.setChecked(self.config.enabled)
         self.enable_switch.checkedChanged.connect(self.on_enable_changed)
 
-        self.edit_btn: PushButton = PushButton(text='编辑')
+        self.edit_btn = TransparentToolButton(FluentIcon.EDIT)
+        self.edit_btn.setToolTip('编辑')
         self.edit_btn.clicked.connect(self.on_edit_clicked)
 
         self.delete_btn = TransparentToolButton(FluentIcon.DELETE, None)
@@ -628,36 +630,42 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)
-        self.add_chain_btn: PushButton = PrimaryPushButton(text='新增')
+
+        self.add_chain_btn = TransparentToolButton(FluentIcon.ADD)
+        self.add_chain_btn.setToolTip('新建脚本链')
         self.add_chain_btn.clicked.connect(self.on_add_chain_clicked)
-        self.rename_chain_btn: PushButton = PushButton(text='重命名')
+        self.rename_chain_btn = TransparentToolButton(FluentIcon.EDIT)
+        self.rename_chain_btn.setToolTip('重命名')
         self.rename_chain_btn.clicked.connect(self.on_rename_chain_clicked)
-        self.delete_chain_btn: PushButton = PushButton(text='删除')
+        self.delete_chain_btn = TransparentToolButton(FluentIcon.DELETE)
+        self.delete_chain_btn.setToolTip('删除')
         self.delete_chain_btn.clicked.connect(self.on_delete_chain_clicked)
-        self.chain_opt = MultiPushSettingCard(
-            icon=FluentIcon.SETTING,
-            title='脚本链',
-            btn_list=[
-                self.chain_combo_box,
-                self.add_chain_btn,
-                self.rename_chain_btn,
-                self.delete_chain_btn,
-            ]
-        )
-        content_widget.add_widget(self.chain_opt)
+
+        add_script_menu = RoundMenu(parent=self)
+        add_script_menu.addAction(Action(FluentIcon.APPLICATION, '启动程序', triggered=self.on_add_script_clicked))
+        add_script_menu.addAction(Action(FluentIcon.CODE, '新建 Python 脚本', triggered=self.on_add_python_script_clicked))
+        add_script_menu.addAction(Action(FluentIcon.DOCUMENT, '选择已有 Python 脚本', triggered=self.on_import_python_script_clicked))
+        self.add_script_btn = PrimaryDropDownPushButton(text='新增脚本')
+        self.add_script_btn.setMenu(add_script_menu)
+
+        self.chain_toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(self.chain_toolbar)
+        toolbar_layout.setContentsMargins(0, 8, 16, 8)
+        toolbar_layout.setSpacing(4)
+        toolbar_layout.addWidget(SubtitleLabel('脚本链'))
+        toolbar_layout.addSpacing(8)
+        toolbar_layout.addWidget(self.chain_combo_box)
+        toolbar_layout.addWidget(self.add_chain_btn)
+        toolbar_layout.addWidget(self.rename_chain_btn)
+        toolbar_layout.addWidget(self.delete_chain_btn)
+        toolbar_layout.addStretch(1)
+        toolbar_layout.addWidget(self.add_script_btn)
+        content_widget.add_widget(self.chain_toolbar)
 
         self.script_list_widget = DraggableList()
         self.script_list_widget.order_changed.connect(self.on_order_changed)
         self.script_card_list: list[DraggableListItem] = []
         content_widget.add_widget(self.script_list_widget)
-
-        self.add_script_btn = PrimaryPushButton(text='增加脚本')
-        self.add_script_btn.clicked.connect(self.on_add_script_clicked)
-        content_widget.add_widget(self.add_script_btn)
-
-        self.add_python_script_btn = PushButton(text='增加 Python 脚本')
-        self.add_python_script_btn.clicked.connect(self.on_add_python_script_clicked)
-        content_widget.add_widget(self.add_python_script_btn)
 
         content_widget.add_stretch(1)
 
@@ -742,12 +750,23 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.chosen_config.add_python_script()
         self.update_chain_display()
 
+    def on_import_python_script_clicked(self) -> None:
+        """选择已有的 Python 脚本文件"""
+        if self.chosen_config is None:
+            return
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, '选择 Python 脚本', '', 'Python 文件 (*.py)'
+        )
+        if not file_path:
+            return
+        self.chosen_config.add_python_script_from_file(file_path)
+        self.update_chain_display()
+
     def update_chain_display(self) -> None:
         """更新脚本链的显示"""
         chosen: bool = self.chosen_config is not None
         self.script_list_widget.setVisible(chosen)
         self.add_script_btn.setVisible(chosen)
-        self.add_python_script_btn.setVisible(chosen)
         self.rename_chain_btn.setVisible(chosen)
         self.delete_chain_btn.setVisible(chosen)
 
