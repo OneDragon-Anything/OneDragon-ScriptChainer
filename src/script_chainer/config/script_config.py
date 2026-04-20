@@ -44,8 +44,8 @@ class ScriptType:
 
 class AttachDirection:
     NONE = ''
-    UP = 'up'
-    DOWN = 'down'
+    PRE = 'pre'
+    POST = 'post'
 
 
 @dataclass
@@ -298,9 +298,9 @@ class ScriptChainConfig(YamlConfig):
         prev = self.script_list[idx - 1]
         return (
             (cur.script_type == ScriptType.PYTHON
-             and cur.attach_direction == AttachDirection.UP)
+             and cur.attach_direction == AttachDirection.POST)
             or (prev.script_type == ScriptType.PYTHON
-                and prev.attach_direction == AttachDirection.DOWN)
+                and prev.attach_direction == AttachDirection.PRE)
         )
 
     def has_next_attached(self, idx: int) -> bool:
@@ -316,7 +316,37 @@ class ScriptChainConfig(YamlConfig):
         nxt = self.script_list[idx + 1]
         return (
             (cur.script_type == ScriptType.PYTHON
-             and cur.attach_direction == AttachDirection.DOWN)
+             and cur.attach_direction == AttachDirection.PRE)
             or (nxt.script_type == ScriptType.PYTHON
-                and nxt.attach_direction == AttachDirection.UP)
+                and nxt.attach_direction == AttachDirection.POST)
         )
+
+    def compute_attach_targets(self) -> list['ScriptConfig | None']:
+        """预计算每个脚本的最终挂靠目标（O(n) 总时间）。
+
+        Returns:
+            长度等于 script_list 的列表，
+            targets[i] 为第 i 个脚本的被挂靠目标，非挂靠脚本为 None。
+        """
+        n = len(self.script_list)
+        targets: list[ScriptConfig | None] = [None] * n
+
+        # POST（后置）：目标在前方，正向扫描时记录最近的非 POST 脚本
+        post_target: ScriptConfig | None = None
+        for i in range(n):
+            sc = self.script_list[i]
+            if sc.script_type == ScriptType.PYTHON and sc.attach_direction == AttachDirection.POST:
+                targets[i] = post_target
+            else:
+                post_target = sc
+
+        # PRE（前置）：目标在后方，逆向扫描时记录最近的非 PRE 脚本
+        pre_target: ScriptConfig | None = None
+        for i in range(n - 1, -1, -1):
+            sc = self.script_list[i]
+            if sc.script_type == ScriptType.PYTHON and sc.attach_direction == AttachDirection.PRE:
+                targets[i] = pre_target
+            else:
+                pre_target = sc
+
+        return targets

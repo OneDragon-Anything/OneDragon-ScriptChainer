@@ -508,11 +508,18 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
             print_message(f'脚本链配置不存在 {chain_name}', "ERROR")
         else:
             log_notifier: LogNotifier | None = None
+            attach_targets = chain_config.compute_attach_targets()
 
             for i in range(len(chain_config.script_list)):
                 script_config = chain_config.script_list[i]
                 if not script_config.enabled:
                     print_message(f'脚本已禁用 跳过 {script_config.script_display_name}')
+                    continue
+
+                # 被挂靠的目标脚本禁用时，跳过挂靠的 Python 脚本
+                attach_target = attach_targets[i]
+                if attach_target is not None and not attach_target.enabled:
+                    print_message(f'被挂靠脚本已禁用 跳过 {script_config.script_display_name}')
                     continue
 
                 if script_config.notify_start:
@@ -523,25 +530,19 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                         )
 
                 # 判断是否挂靠到上一个脚本（复用其 log_notifier）
-                # 非挂靠脚本：需要自己管理 log_notifier
-                if not chain_config.is_attached_to_prev(i):
+                # 禁用脚本不参与挂靠，非挂靠脚本需要自己管理 log_notifier
+                attached_to_prev = (
+                    chain_config.is_attached_to_prev(i)
+                    and i > 0
+                    and chain_config.script_list[i - 1].enabled
+                )
+                if not attached_to_prev:
                     if log_notifier is not None:
                         log_notifier.stop()
                         log_notifier = None
 
-                    # 前置脚本（DOWN）沿挂靠链找到最终目标脚本的配置创建 notifier
-                    notifier_config = script_config
-                    if (
-                        script_config.script_type == ScriptType.PYTHON
-                        and script_config.attach_direction == AttachDirection.DOWN
-                    ):
-                        for j in range(i + 1, len(chain_config.script_list)):
-                            notifier_config = chain_config.script_list[j]
-                            if not (
-                                notifier_config.script_type == ScriptType.PYTHON
-                                and notifier_config.attach_direction == AttachDirection.DOWN
-                            ):
-                                break
+                    # 前置脚本用被挂靠目标的配置创建 notifier
+                    notifier_config = attach_target if attach_target is not None else script_config
 
                     if ctx is not None and notifier_config.notify_log_interval > 0:
                         log_notifier = LogNotifier(
@@ -559,8 +560,15 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                 except Exception:
                     log.error('脚本执行异常', exc_info=True)
 
+                # 禁用脚本不参与挂靠
+                next_attached = (
+                    chain_config.has_next_attached(i)
+                    and i + 1 < len(chain_config.script_list)
+                    and chain_config.script_list[i + 1].enabled
+                )
+
                 # 没有下一个挂靠脚本时，停止 log_notifier
-                if not chain_config.has_next_attached(i):
+                if not next_attached:
                     if log_notifier is not None:
                         log_notifier.stop()
                         log_notifier = None
@@ -573,7 +581,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                         )
 
                 if i < len(chain_config.script_list) - 1:
-                    if not chain_config.has_next_attached(i):
+                    if not next_attached:
                         print_message('10秒后开始下一个脚本')
                         time.sleep(10)
 

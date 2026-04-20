@@ -486,34 +486,34 @@ class PythonScriptSettingCard(DraggableListItem):
         return '(空)'
 
     def _get_attach_label(self) -> str:
-        if self.config.attach_direction == AttachDirection.UP:
+        if self.config.attach_direction == AttachDirection.POST:
             return ' [↑ 后置]'
-        elif self.config.attach_direction == AttachDirection.DOWN:
+        elif self.config.attach_direction == AttachDirection.PRE:
             return ' [↓ 前置]'
         return ''
 
     def _on_attach_up(self) -> None:
         """切换向上挂靠"""
-        if self.config.attach_direction == AttachDirection.UP:
+        if self.config.attach_direction == AttachDirection.POST:
             self.config.attach_direction = AttachDirection.NONE
         else:
             if self.index <= 0:
                 _show_warning(self.window(), '无法挂靠', '上方没有可挂靠的脚本')
                 return
-            self.config.attach_direction = AttachDirection.UP
+            self.config.attach_direction = AttachDirection.POST
         self._update_display()
         self.value_changed.emit(self.config)
         self.attach_changed.emit()
 
     def _on_attach_down(self) -> None:
         """切换向下挂靠"""
-        if self.config.attach_direction == AttachDirection.DOWN:
+        if self.config.attach_direction == AttachDirection.PRE:
             self.config.attach_direction = AttachDirection.NONE
         else:
             if self.index >= len(self.chain_config.script_list) - 1:
                 _show_warning(self.window(), '无法挂靠', '下方没有可挂靠的脚本')
                 return
-            self.config.attach_direction = AttachDirection.DOWN
+            self.config.attach_direction = AttachDirection.PRE
         self._update_display()
         self.value_changed.emit(self.config)
         self.attach_changed.emit()
@@ -785,9 +785,9 @@ class ScriptSettingInterface(VerticalScrollInterface):
             if isinstance(config, ScriptConfig) and config.script_type == ScriptType.PYTHON:
                 should_clear = id(config) in moved_ids
                 # 挂靠目标位置变了也要清除
-                if not should_clear and config.attach_direction == AttachDirection.UP and idx > 0:
+                if not should_clear and config.attach_direction == AttachDirection.POST and idx > 0:
                     should_clear = id(self.script_card_list[idx - 1].data) in moved_ids
-                if not should_clear and config.attach_direction == AttachDirection.DOWN and idx < len(self.script_card_list) - 1:
+                if not should_clear and config.attach_direction == AttachDirection.PRE and idx < len(self.script_card_list) - 1:
                     should_clear = id(self.script_card_list[idx + 1].data) in moved_ids
                 if should_clear:
                     config.attach_direction = AttachDirection.NONE
@@ -831,11 +831,11 @@ class ScriptSettingInterface(VerticalScrollInterface):
         script_list = self.chosen_config.script_list
         if idx > 0:
             prev = script_list[idx - 1]
-            if prev.script_type == ScriptType.PYTHON and prev.attach_direction == AttachDirection.DOWN:
+            if prev.script_type == ScriptType.PYTHON and prev.attach_direction == AttachDirection.PRE:
                 prev.attach_direction = AttachDirection.NONE
         if idx < len(script_list) - 1:
             nxt = script_list[idx + 1]
-            if nxt.script_type == ScriptType.PYTHON and nxt.attach_direction == AttachDirection.UP:
+            if nxt.script_type == ScriptType.PYTHON and nxt.attach_direction == AttachDirection.POST:
                 nxt.attach_direction = AttachDirection.NONE
 
         self.chosen_config.delete_one(idx)
