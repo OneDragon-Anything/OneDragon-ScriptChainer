@@ -196,6 +196,14 @@ class ScriptChainConfig(YamlConfig):
         Path(path).write_text(code, encoding='utf-8')
         return path
 
+    def _is_managed_script(self, path: str) -> bool:
+        """判断脚本文件是否在 scripts/ 管理目录内。"""
+        try:
+            Path(path).resolve().relative_to(self._get_python_scripts_dir().resolve())
+            return True
+        except ValueError:
+            return False
+
     def _next_python_script_number(self) -> int:
         """获取下一个可用的 Python 脚本编号（从目录中已有文件推算）。"""
         existing = set()
@@ -271,12 +279,9 @@ class ScriptChainConfig(YamlConfig):
         config = self.script_list[index]
         # Python 脚本删除时同时移除对应的 .py 文件（仅限 scripts/ 目录内）
         if config.script_type == ScriptType.PYTHON and config.script_path:
-            with suppress(OSError, ValueError):
-                script_file = Path(config.script_path).resolve()
-                scripts_dir = self._get_python_scripts_dir().resolve()
-                script_file.relative_to(scripts_dir)
-                if script_file.is_file():
-                    script_file.unlink()
+            if self._is_managed_script(config.script_path):
+                with suppress(OSError):
+                    Path(config.script_path).unlink()
         del self.script_list[index]
         self.init_idx()
         self.save()
@@ -310,8 +315,8 @@ class ScriptChainConfig(YamlConfig):
         """判断第 idx 个脚本是否挂靠到前一个脚本。
 
         满足以下任一条件即视为挂靠：
-        - 当前脚本是 Python 且 attach_direction == UP
-        - 前一个脚本是 Python 且 attach_direction == DOWN
+        - 当前脚本是 Python 且 attach_direction == POST
+        - 前一个脚本是 Python 且 attach_direction == PRE
         """
         if idx <= 0 or idx >= len(self.script_list):
             return False
@@ -328,8 +333,8 @@ class ScriptChainConfig(YamlConfig):
         """判断第 idx 个脚本之后是否有挂靠脚本。
 
         满足以下任一条件即视为有挂靠：
-        - 当前脚本是 Python 且 attach_direction == DOWN
-        - 下一个脚本是 Python 且 attach_direction == UP
+        - 当前脚本是 Python 且 attach_direction == PRE
+        - 下一个脚本是 Python 且 attach_direction == POST
         """
         if idx < 0 or idx >= len(self.script_list) - 1:
             return False

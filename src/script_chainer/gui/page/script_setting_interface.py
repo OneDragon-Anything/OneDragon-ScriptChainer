@@ -3,8 +3,8 @@ import shlex
 import shutil
 import sys
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QIcon
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
@@ -581,7 +581,7 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         if getattr(sys, 'frozen', False):
             python = shutil.which('python') or shutil.which('python3')
             if not python:
-                _show_warning(self.window(), '无法调试', '未找到系统 Python，请安装 Python 并添加到 PATH')
+                _show_warning(self.window(), '无法运行', '未找到系统 Python，请安装 Python 并添加到 PATH')
                 return
         else:
             python = sys.executable
@@ -596,13 +596,19 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             _show_error(self.window(), '运行失败', str(e))
 
     def on_edit_clicked(self) -> None:
-        """内部编辑 Python 脚本，弹窗中包含外部编辑按钮"""
+        """编辑 Python 脚本。外部脚本直接调用外部编辑器，内部脚本弹窗编辑。"""
+        path = self.config.script_path
+        if path and not self.chain_config._is_managed_script(path):
+            # 外部脚本：直接用系统默认编辑器打开
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+                _show_error(self.window(), '打开失败', f'无法打开 {path}')
+            return
         code = self.chain_config.get_python_script_content(self.config.idx)
         dialog = PythonCodeEditorDialog(
             parent=self.window(),
             title='Python 脚本',
             initial_code=code,
-            script_path=self.config.script_path,
+            script_path=path,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.chain_config.save_python_script(self.config.idx, dialog.get_code())
