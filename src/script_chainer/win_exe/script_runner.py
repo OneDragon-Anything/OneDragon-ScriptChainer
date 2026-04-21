@@ -1,7 +1,6 @@
 import argparse
 import atexit
 import datetime
-import logging
 import os
 import shlex
 import signal
@@ -9,12 +8,13 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
-from logging.handlers import TimedRotatingFileHandler
 from pathlib import PurePath
 
 from colorama import Fore, Style, init
 
-from one_dragon.utils import cmd_utils, os_utils
+from one_dragon.utils import cmd_utils
+from one_dragon.utils.log_utils import get_or_create_logger
+from one_dragon.utils.log_utils import log as framework_log
 from script_chainer.config.script_config import (
     CheckDoneMethods,
     ScriptChainConfig,
@@ -29,6 +29,11 @@ from script_chainer.services.process_manager import (
     ProcessManager,
     find_process_by_info,
     is_process_existed,
+)
+from script_chainer.utils.runner_log_utils import (
+    RUNNER_LOG_CONFIG,
+    RUNNER_LOGGER_NAME,
+    configure_runner_runtime_logging,
 )
 from script_chainer.utils.runtime_group_utils import build_runtime_groups
 
@@ -57,23 +62,7 @@ class _TeeWriter:
         return getattr(self._original, name)
 
 
-def get_logger():
-    logger = logging.getLogger('OneDragon')
-    logger.handlers.clear()
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter('[%(asctime)s.%(msecs)03d] [%(filename)s %(lineno)d] [%(levelname)s]: %(message)s', '%H:%M:%S')
-
-    log_file_path = os.path.join(os_utils.get_path_under_work_dir('.log'), 'log.txt')
-    archive_handler = TimedRotatingFileHandler(log_file_path, when='midnight', interval=1, backupCount=3, encoding='utf-8')
-    archive_handler.setLevel(logging.INFO)
-    archive_handler.setFormatter(formatter)
-    logger.addHandler(archive_handler)
-
-    return logger
-
-
-log = get_logger()
+log = get_or_create_logger(RUNNER_LOGGER_NAME, RUNNER_LOG_CONFIG)
 
 
 def parse_args():
@@ -82,6 +71,12 @@ def parse_args():
     parser.add_argument('-s', '--shutdown', type=int, nargs='?', const=60, help='运行后关机延迟秒数，默认60秒')
 
     return parser.parse_args()
+
+
+def _configure_runtime_logging() -> None:
+    """为 runner 进程显式配置日志输出位置。"""
+    global log
+    log = configure_runner_runtime_logging(framework_log)
 
 
 def print_message(message: str, level="INFO"):
@@ -514,6 +509,8 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
         chain_name: 脚本链名称。
         shutdown_delay: 运行后关机延迟秒数，0 表示不关机。
     """
+    _configure_runtime_logging()
+
     # 注册信号处理，确保点击控制台 X 或 Ctrl+C 时能清理子进程
     signal.signal(signal.SIGINT, _on_exit_signal)
     signal.signal(signal.SIGTERM, _on_exit_signal)
