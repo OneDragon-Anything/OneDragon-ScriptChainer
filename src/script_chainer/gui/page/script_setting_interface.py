@@ -608,8 +608,17 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         """编辑 Python 脚本。外部脚本直接调用外部编辑器，内部脚本弹窗编辑。"""
         path = self.config.script_path
         if path and not self.chain_config._is_managed_script(path):
-            # 外部脚本：直接用系统默认编辑器打开
-            os.startfile(path, 'edit')
+            if os.name == 'nt':
+                try:
+                    os.startfile(path, 'edit')
+                except (AttributeError, OSError) as e:
+                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
+            else:
+                try:
+                    if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+                        raise OSError('系统默认编辑器未能打开该文件')
+                except OSError as e:
+                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
             return
         code = self.chain_config.get_python_script_content(self.config.idx)
         dialog = PythonCodeEditorDialog(
