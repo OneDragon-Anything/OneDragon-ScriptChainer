@@ -1,5 +1,7 @@
 import argparse
 import atexit
+import ctypes
+import ctypes.wintypes
 import datetime
 import logging
 import os
@@ -9,14 +11,14 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
-from logging.handlers import TimedRotatingFileHandler
 from pathlib import PurePath
 
 from colorama import Fore, Style, init
 
-from one_dragon.utils import cmd_utils, os_utils
+from one_dragon.utils import cmd_utils
+from one_dragon.utils.log_utils import get_or_create_logger
+from one_dragon.utils.log_utils import log as framework_log
 from script_chainer.config.script_config import (
-    AttachDirection,
     CheckDoneMethods,
     ScriptChainConfig,
     ScriptConfig,
@@ -31,9 +33,15 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
+from script_chainer.utils.runner_log_utils import (
+    RUNNER_LOG_CONFIG,
+    RUNNER_LOGGER_NAME,
+    configure_runner_runtime_logging,
+)
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
+_console_ctrl_handler = None
 
 
 class _TeeWriter:
@@ -56,32 +64,22 @@ class _TeeWriter:
     def __getattr__(self, name: str):
         return getattr(self._original, name)
 
-
-def get_logger():
-    logger = logging.getLogger('OneDragon')
-    logger.handlers.clear()
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter('[%(asctime)s.%(msecs)03d] [%(filename)s %(lineno)d] [%(levelname)s]: %(message)s', '%H:%M:%S')
-
-    log_file_path = os.path.join(os_utils.get_path_under_work_dir('.log'), 'log.txt')
-    archive_handler = TimedRotatingFileHandler(log_file_path, when='midnight', interval=1, backupCount=3, encoding='utf-8')
-    archive_handler.setLevel(logging.INFO)
-    archive_handler.setFormatter(formatter)
-    logger.addHandler(archive_handler)
-
-    return logger
-
-
-log = get_logger()
+log = get_or_create_logger(RUNNER_LOGGER_NAME, RUNNER_LOG_CONFIG)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
     parser.add_argument('-s', '--shutdown', type=int, nargs='?', const=60, help='运行后关机延迟秒数，默认60秒')
+    parser.add_argument('--debug-index', type=int, default=None, help='仅调试运行指定下标的脚本（会附带其前置/后置脚本）')
 
     return parser.parse_args()
+
+
+def _configure_runtime_logging() -> None:
+    """为 runner 进程显式配置日志输出位置。"""
+    global log
+    log = configure_runner_runtime_logging(framework_log)
 
 
 def print_message(message: str, level="INFO"):
@@ -465,6 +463,37 @@ def _cleanup_active_pm():
         _active_pm = None
 
 
+def _force_exit_current_process() -> None:
+    """立刻退出当前进程，用于控制台关闭等不可恢复场景。"""
+    _cleanup_active_pm()
+    os._exit(1)
+
+
+def _register_console_close_handler() -> None:
+    """注册 Windows 控制台关闭事件。
+
+    这样在前置/后置 Python 脚本 exec() 期间关闭控制台，也能直接结束当前
+    runner 进程，而不是卡在脚本里无法退出。
+    """
+    global _console_ctrl_handler
+
+    if sys.platform != 'win32' or _console_ctrl_handler is not None:
+        return
+
+    handler_type = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.DWORD)
+    close_events = {0, 1, 2, 5, 6}  # CTRL_C/BREAK/CLOSE/LOGOFF/SHUTDOWN
+
+    def _handler(ctrl_type: int) -> bool:
+        if ctrl_type in close_events:
+            _force_exit_current_process()
+            return True
+        return False
+
+    _console_ctrl_handler = handler_type(_handler)
+    with suppress(Exception):
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_ctrl_handler, True)
+
+
 def _on_exit_signal(signum, frame):
     """控制台关闭/Ctrl+C 时清理子进程并退出。
 
@@ -473,23 +502,49 @@ def _on_exit_signal(signum, frame):
         子进程清理由 Job Object (KILL_ON_JOB_CLOSE) 自动保证。
     """
     if sys.platform == 'win32' and signum == signal.SIGBREAK:
-        os._exit(1)
+        _force_exit_current_process()
     _cleanup_active_pm()
     sys.exit(1)
 
 
-def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
+def _collect_debug_indices(chain_config: ScriptChainConfig, debug_index: int | None) -> set[int] | None:
+    """收集单脚本调试时需要运行的脚本下标。"""
+    if debug_index is None:
+        return None
+
+    if debug_index < 0 or debug_index >= len(chain_config.script_list):
+        raise ValueError(f'调试脚本下标越界: {debug_index}')
+
+    targets = chain_config.compute_attach_targets()
+    debug_target = chain_config.script_list[debug_index]
+    selected = {debug_index}
+    for idx, attach_target in enumerate(targets):
+        if attach_target is debug_target:
+            selected.add(idx)
+
+    return selected
+
+
+def run_chain(
+    chain_name: str = '01',
+    shutdown_delay: int = 0,
+    debug_index: int | None = None,
+) -> None:
     """运行指定的脚本链。
 
     Args:
         chain_name: 脚本链名称。
         shutdown_delay: 运行后关机延迟秒数，0 表示不关机。
+        debug_index: 仅调试运行指定下标的脚本。
     """
+    _configure_runtime_logging()
+
     # 注册信号处理，确保点击控制台 X 或 Ctrl+C 时能清理子进程
     signal.signal(signal.SIGINT, _on_exit_signal)
     signal.signal(signal.SIGTERM, _on_exit_signal)
     if sys.platform == 'win32':
         signal.signal(signal.SIGBREAK, _on_exit_signal)
+    _register_console_close_handler()
     atexit.register(_cleanup_active_pm)
 
     init(autoreset=True)
@@ -509,16 +564,42 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
         else:
             log_notifier: LogNotifier | None = None
             attach_targets = chain_config.compute_attach_targets()
+            try:
+                selected_indices = _collect_debug_indices(chain_config, debug_index)
+            except ValueError as e:
+                print_message(str(e), 'ERROR')
+                return
+
+            debug_target = (
+                chain_config.script_list[debug_index]
+                if debug_index is not None and 0 <= debug_index < len(chain_config.script_list)
+                else None
+            )
+
+            def _is_selected(idx: int) -> bool:
+                return selected_indices is None or idx in selected_indices
+
+            def _should_run(idx: int) -> bool:
+                if not _is_selected(idx):
+                    return False
+                return chain_config.script_list[idx].enabled or idx == debug_index
+
+            if debug_target is not None:
+                print_message(f'调试运行脚本链 {chain_name}: {debug_target.script_display_name}')
 
             for i in range(len(chain_config.script_list)):
                 script_config = chain_config.script_list[i]
-                if not script_config.enabled:
+                if not _is_selected(i):
+                    continue
+
+                if not _should_run(i):
                     print_message(f'脚本已禁用 跳过 {script_config.script_display_name}')
                     continue
 
                 # 被挂靠的目标脚本禁用时，跳过挂靠的 Python 脚本
                 attach_target = attach_targets[i]
-                if attach_target is not None and not attach_target.enabled:
+                attach_target_forced = attach_target is not None and attach_target is debug_target
+                if attach_target is not None and not attach_target.enabled and not attach_target_forced:
                     print_message(f'被挂靠脚本已禁用 跳过 {script_config.script_display_name}')
                     continue
 
@@ -526,7 +607,11 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                     if ctx is not None:
                         ctx.push_service.push_async(
                             title=ctx.notify_config.title,
-                            content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
+                            content=(
+                                f'脚本链 {chain_name} 调试开始: {script_config.script_display_name}'
+                                if debug_target is not None
+                                else f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
+                            )
                         )
 
                 # 判断是否挂靠到上一个脚本（复用其 log_notifier）
@@ -534,7 +619,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                 attached_to_prev = (
                     chain_config.is_attached_to_prev(i)
                     and i > 0
-                    and chain_config.script_list[i - 1].enabled
+                    and _should_run(i - 1)
                 )
                 if not attached_to_prev:
                     if log_notifier is not None:
@@ -564,7 +649,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                 next_attached = (
                     chain_config.has_next_attached(i)
                     and i + 1 < len(chain_config.script_list)
-                    and chain_config.script_list[i + 1].enabled
+                    and _should_run(i + 1)
                 )
 
                 # 没有下一个挂靠脚本时，停止 log_notifier
@@ -577,10 +662,14 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                     if ctx is not None:
                         ctx.push_service.push_async(
                             title=ctx.notify_config.title,
-                            content=f'脚本链 {chain_name} 运行结束: {script_config.script_display_name}'
+                            content=(
+                                f'脚本链 {chain_name} 调试结束: {script_config.script_display_name}'
+                                if debug_target is not None
+                                else f'脚本链 {chain_name} 运行结束: {script_config.script_display_name}'
+                            )
                         )
 
-                if i < len(chain_config.script_list) - 1:
+                if i < len(chain_config.script_list) - 1 and any(_should_run(j) for j in range(i + 1, len(chain_config.script_list))):
                     if not next_attached:
                         print_message('10秒后开始下一个脚本')
                         time.sleep(10)
@@ -589,7 +678,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
             if log_notifier is not None:
                 log_notifier.stop()
 
-            print_message('已完成全部脚本')
+            print_message('已完成调试脚本' if debug_target is not None else '已完成全部脚本')
 
         if shutdown_delay > 0:
             cmd_utils.shutdown_sys(shutdown_delay)
@@ -612,6 +701,7 @@ def run():
     run_chain(
         chain_name=args.chain,
         shutdown_delay=args.shutdown if args.shutdown else 0,
+        debug_index=args.debug_index,
     )
     sys.exit(0)
 

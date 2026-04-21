@@ -1,10 +1,9 @@
 import os
-import shlex
 import shutil
 import sys
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
@@ -18,6 +17,7 @@ from qfluentwidgets import (
     LineEdit,
     MessageBoxBase,
     PrimaryDropDownPushButton,
+    PushButton,
     RoundMenu,
     SubtitleLabel,
     SwitchButton,
@@ -57,6 +57,10 @@ from script_chainer.config.script_config import (
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.utils.process_utils import launch_in_terminal
+from script_chainer.utils.runner_utils import (
+    build_runner_command,
+    get_console_python_executable,
+)
 
 
 def _show_info(parent: QWidget, level: str, title: str, content: str, duration: int = 3000) -> None:
@@ -391,9 +395,10 @@ class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
     value_changed = Signal(ScriptConfig)
     deleted = Signal(int)
 
-    def __init__(self, config: ScriptConfig, index: int = 0, parent=None,
+    def __init__(self, config: ScriptConfig, chain_name: str, index: int = 0, parent=None,
                  enable_opacity_effect: bool = True):
         self.config: ScriptConfig = config
+        self.chain_name: str = chain_name
         self._setup_common_widgets()
 
         self.debug_btn = TransparentToolButton(FluentIcon.PLAY, None)
@@ -434,24 +439,16 @@ class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
             _show_warning(self.window(), '配置不合法', invalid_msg)
             return
 
-        script_path = self.config.script_path
-        display = os.path.basename(script_path)
+        display = self.config.script_display_name
 
         try:
-            args_list: list[str] = []
-            args_str = self.config.script_arguments or ''
-            if args_str.strip():
-                args_list = shlex.split(args_str, posix=False)
-
-            cmd = [script_path, *args_list]
+            cmd, cwd = build_runner_command(self.chain_name, self.index)
             launch_in_terminal(
                 command=cmd,
-                cwd=os.path.dirname(script_path) or None,
+                cwd=cwd,
                 title=f'调试 {display}',
             )
-            _show_success(self.window(), '调试运行', f'已启动 {display}')
-        except ValueError as e:
-            _show_warning(self.window(), '参数不合法', str(e))
+            _show_success(self.window(), '调试运行', f'已在终端启动 {display}')
         except Exception as e:
             _show_error(self.window(), '启动失败', str(e))
 
@@ -593,7 +590,7 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
                 _show_warning(self.window(), '无法运行', '未找到系统 Python，请安装 Python 并添加到 PATH')
                 return
         else:
-            python = sys.executable
+            python = get_console_python_executable()
         try:
             launch_in_terminal(
                 command=[python, path],
@@ -671,8 +668,10 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.delete_chain_btn.setToolTip('删除')
         self.delete_chain_btn.clicked.connect(self.on_delete_chain_clicked)
 
+        self.run_chain_btn = PushButton(text='运行全部', icon=FluentIcon.PLAY)
+        self.run_chain_btn.clicked.connect(self.on_run_chain_clicked)
         add_script_menu = RoundMenu(parent=self)
-        add_script_menu.addAction(Action(FluentIcon.APPLICATION, '启动程序', triggered=self.on_add_script_clicked))
+        add_script_menu.addAction(Action(FluentIcon.APPLICATION, '外部程序', triggered=self.on_add_script_clicked))
         add_script_menu.addAction(Action(FluentIcon.CODE, '新建 Python 脚本', triggered=self.on_add_python_script_clicked))
         add_script_menu.addAction(Action(FluentIcon.DOCUMENT, '选择已有 Python 脚本', triggered=self.on_import_python_script_clicked))
         self.add_script_btn = PrimaryDropDownPushButton(text='新增脚本')
@@ -689,6 +688,8 @@ class ScriptSettingInterface(VerticalScrollInterface):
         toolbar_layout.addWidget(self.rename_chain_btn)
         toolbar_layout.addWidget(self.delete_chain_btn)
         toolbar_layout.addStretch(1)
+        toolbar_layout.addWidget(self.run_chain_btn)
+        toolbar_layout.addSpacing(4)
         toolbar_layout.addWidget(self.add_script_btn)
         content_widget.add_widget(self.chain_toolbar)
 
@@ -792,11 +793,29 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.chosen_config.add_python_script_from_file(file_path)
         self.update_chain_display()
 
+    def on_run_chain_clicked(self) -> None:
+        """拉起独立 runner 运行当前脚本链。"""
+        if self.chosen_config is None:
+            return
+
+        chain_name = self.chosen_config.module_name
+        try:
+            cmd, cwd = build_runner_command(chain_name)
+            launch_in_terminal(
+                command=cmd,
+                cwd=cwd,
+                title=f'运行脚本链 {chain_name}',
+            )
+            _show_success(self.window(), '运行全部', f'已在终端启动脚本链 {chain_name}')
+        except Exception as e:
+            _show_error(self.window(), '启动失败', str(e))
+
     def update_chain_display(self) -> None:
         """更新脚本链的显示"""
         chosen: bool = self.chosen_config is not None
         self.script_list_widget.setVisible(chosen)
         self.add_script_btn.setVisible(chosen)
+        self.run_chain_btn.setVisible(chosen)
         self.rename_chain_btn.setVisible(chosen)
         self.delete_chain_btn.setVisible(chosen)
 
@@ -819,7 +838,11 @@ class ScriptSettingInterface(VerticalScrollInterface):
                     script_config, chain_config=self.chosen_config, index=i)
                 card.attach_changed.connect(self._update_attach_margins)
             else:
-                card = ScriptSettingCard(script_config, index=i)
+                card = ScriptSettingCard(
+                    script_config,
+                    chain_name=self.chosen_config.module_name,
+                    index=i,
+                )
             self.script_card_list.append(card)
             self.script_list_widget.add_list_item(card)
 
