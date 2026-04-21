@@ -609,8 +609,7 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         path = self.config.script_path
         if path and not self.chain_config._is_managed_script(path):
             # 外部脚本：直接用系统默认编辑器打开
-            if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
-                _show_error(self.window(), '打开失败', f'无法打开 {path}')
+            os.startfile(path, 'edit')
             return
         code = self.chain_config.get_python_script_content(self.config.idx)
         dialog = PythonCodeEditorDialog(
