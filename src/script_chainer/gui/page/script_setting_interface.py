@@ -547,7 +547,7 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
 
     def _get_title(self) -> str:
         if self.config.display_name:
-            return f'Python 脚本 - {self.config.display_name}'
+            return self.config.display_name
         return 'Python 脚本'
 
     def _get_display_name(self) -> str:
