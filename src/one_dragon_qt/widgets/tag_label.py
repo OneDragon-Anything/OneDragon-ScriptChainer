@@ -22,7 +22,10 @@ class TagLabel(QLabel):
         self.setFixedHeight(18)
 
         if color is not None:
-            self._apply_fixed(QColor(color))
+            fixed_color = QColor(color)
+            if not fixed_color.isValid():
+                raise ValueError(f"无效的标签颜色: {color!r}")
+            self._apply_fixed(fixed_color)
         else:
             qconfig.themeColorChanged.connect(self._apply_theme)
             self._apply_theme(qconfig.get(qconfig.themeColor))
