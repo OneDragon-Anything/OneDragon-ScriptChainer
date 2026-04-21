@@ -9,7 +9,6 @@ from qfluentwidgets import (
     Dialog,
     DoubleSpinBox,
     FluentIcon,
-    HyperlinkCard,
     InfoBar,
     InfoBarPosition,
     LineEdit,
@@ -652,11 +651,6 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
     def get_content_widget(self) -> QWidget:
         content_widget = Column()
-
-        self.help_opt = HyperlinkCard(icon=FluentIcon.HELP, title='使用说明', text='前往',
-                                      url='https://onedragon-anything.github.io/tools/zh/script_chainer.html')
-        self.help_opt.setContent('先看说明 再使用与提问')
-        content_widget.add_widget(self.help_opt)
 
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)
