@@ -6,6 +6,7 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtGui import QMouseEvent, QPixmap, QImage
 from PySide6.QtWidgets import QWidget
+from cv2.typing import MatLike
 from qfluentwidgets import ImageLabel
 
 from one_dragon.base.config.config_item import ConfigItem

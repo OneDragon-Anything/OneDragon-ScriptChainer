@@ -689,7 +689,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chain_toolbar = QWidget()
         toolbar_layout = QHBoxLayout(self.chain_toolbar)
-        toolbar_layout.setContentsMargins(0, 8, 16, 8)
+        toolbar_layout.setContentsMargins(0, 16, 16, 8)
         toolbar_layout.setSpacing(4)
         toolbar_layout.addWidget(SubtitleLabel('脚本链'))
         toolbar_layout.addSpacing(8)
