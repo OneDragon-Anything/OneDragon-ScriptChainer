@@ -44,6 +44,7 @@ from one_dragon_qt.widgets.setting_card.multi_push_setting_card import (
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
 from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
+from one_dragon_qt.widgets.tag_label import TagLabel
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.config.script_config import (
     AttachDirection,
@@ -334,14 +335,15 @@ class ScriptCardMixin:
         self._rename_btn.setToolTip('重命名')
         self._rename_btn.clicked.connect(self._on_rename)
 
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(4)
+        self._title_row = QHBoxLayout()
+        self._title_row.setContentsMargins(0, 0, 0, 0)
+        self._title_row.setSpacing(4)
         content_widget.vBoxLayout.removeWidget(content_widget.titleLabel)
-        title_row.addWidget(content_widget.titleLabel)
-        title_row.addWidget(self._rename_btn)
-        title_row.addStretch()
-        content_widget.vBoxLayout.insertLayout(0, title_row)
+        # 子类可在 titleLabel 前后插入 tag
+        self._title_row.addWidget(content_widget.titleLabel)
+        self._title_row.addWidget(self._rename_btn)
+        self._title_row.addStretch()
+        content_widget.vBoxLayout.insertLayout(0, self._title_row)
 
     # ── 公共事件处理 ──
 
@@ -464,12 +466,15 @@ class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
 
     def _update_display(self) -> None:
         """更新卡片显示内容"""
-        title = f'游戏 {self.config.game_display_name}'
+        title = self.config.game_display_name
         if self.config.display_name:
             title += f' - {self.config.display_name}'
         self.content_widget.setTitle(title)
-        script_name = os.path.basename(self.config.script_path) if self.config.script_path else '(未设置)'
-        self.content_widget.setContent(f'脚本 {script_name}')
+        script_name = (
+            os.path.basename(self.config.script_path)
+            if self.config.script_path else '(未设置)'
+        )
+        self.content_widget.setContent(script_name)
         self.enable_switch.setChecked(self.config.enabled)
 
 
@@ -526,25 +531,29 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             parent=parent,
         )
         self.content_widget: MultiPushSettingCard = content_widget
+
+        # 标签插入 title_row：titleLabel [↑后置/↓前置] [外部] [rename_btn] [stretch]
+        self._post_tag = TagLabel('↑ 后置', color='#E08020')
+        self._pre_tag = TagLabel('↓ 前置', color='#E08020')
+        self._external_tag = TagLabel('外部')
+
+        # 状态 tag 插到 rename_btn 前面
+        rename_idx = self._title_row.indexOf(self._rename_btn)
+        self._title_row.insertWidget(rename_idx, self._external_tag)
+        self._title_row.insertWidget(rename_idx, self._pre_tag)
+        self._title_row.insertWidget(rename_idx, self._post_tag)
+
         self._update_display()
 
     def _get_title(self) -> str:
-        attach_label = self._get_attach_label()
         if self.config.display_name:
-            return f'Python 脚本 - {self.config.display_name}{attach_label}'
-        return f'Python 脚本{attach_label}'
+            return f'Python 脚本 - {self.config.display_name}'
+        return 'Python 脚本'
 
     def _get_display_name(self) -> str:
         if self.config.script_path:
             return os.path.basename(self.config.script_path)
         return '(空)'
-
-    def _get_attach_label(self) -> str:
-        if self.config.attach_direction == AttachDirection.POST:
-            return ' [↑ 后置]'
-        elif self.config.attach_direction == AttachDirection.PRE:
-            return ' [↓ 前置]'
-        return ''
 
     def _on_attach_up(self) -> None:
         """切换向上挂靠"""
@@ -618,6 +627,13 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         self.content_widget.setTitle(self._get_title())
         self.content_widget.setContent(self._get_display_name())
         self.enable_switch.setChecked(self.config.enabled)
+        self._post_tag.setVisible(self.config.attach_direction == AttachDirection.POST)
+        self._pre_tag.setVisible(self.config.attach_direction == AttachDirection.PRE)
+        is_external = bool(
+            self.config.script_path
+            and not self.chain_config._is_managed_script(self.config.script_path)
+        )
+        self._external_tag.setVisible(is_external)
 
 
 class ScriptSettingInterface(VerticalScrollInterface):
