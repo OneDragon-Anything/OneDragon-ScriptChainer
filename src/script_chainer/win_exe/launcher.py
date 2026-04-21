@@ -31,6 +31,12 @@ class ScriptChainerLauncher(ExeLauncher):
             default="01",
             help="脚本链名称（仅 --onedragon 模式使用，默认: 01）",
         )
+        parser.add_argument(
+            "--debug-index",
+            type=int,
+            default=None,
+            help="仅调试指定下标脚本，并按挂靠关系一并编排（禁用项仍会跳过）",
+        )
 
     @staticmethod
     def _hide_console() -> None:
@@ -53,10 +59,12 @@ class ScriptChainerLauncher(ExeLauncher):
         # 从 launch_args 和 self.args 中提取参数
         chain_name = self.args.chain if self.args else "01"
         shutdown_delay = self.args.shutdown if self.args and self.args.shutdown else 0
+        debug_index = self.args.debug_index if self.args else None
 
         run_chain(
             chain_name=chain_name,
             shutdown_delay=shutdown_delay,
+            debug_index=debug_index,
         )
         sys.exit(0)
 

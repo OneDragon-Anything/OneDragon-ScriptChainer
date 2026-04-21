@@ -8,7 +8,7 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 from colorama import Fore, Style, init
 
@@ -35,7 +35,10 @@ from script_chainer.utils.runner_log_utils import (
     RUNNER_LOGGER_NAME,
     configure_runner_runtime_logging,
 )
-from script_chainer.utils.runtime_group_utils import build_runtime_groups
+from script_chainer.utils.runtime_group_utils import (
+    build_runtime_selection,
+    resolve_runtime_groups,
+)
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
@@ -69,6 +72,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
     parser.add_argument('-s', '--shutdown', type=int, nargs='?', const=60, help='运行后关机延迟秒数，默认60秒')
+    parser.add_argument('--debug-index', type=int, default=None, help='仅调试指定下标脚本，并按挂靠关系一并编排（禁用项仍会跳过）')
 
     return parser.parse_args()
 
@@ -420,7 +424,7 @@ def _run_python_script(
         script_config: 脚本配置（script_type == 'python'）。
         log_notifier: 可选的日志通知器，用于定时推送日志。
     """
-    script_path = script_config.script_path
+    script_file = Path(script_config.script_path)
     display_name = script_config.script_display_name
 
     invalid_msg = script_config.invalid_message
@@ -429,8 +433,7 @@ def _run_python_script(
         return
 
     try:
-        with open(script_path, 'r', encoding='utf-8') as f:
-            code = f.read()
+        code = script_file.read_text(encoding='utf-8')
     except Exception as e:
         print_message(f'读取 Python 脚本失败 {display_name}: {e}', level='ERROR')
         log.error('读取 Python 脚本失败', exc_info=True)
@@ -445,11 +448,13 @@ def _run_python_script(
     old_sys_path = sys.path[:]
     old_stdout = sys.stdout
     old_cwd = os.getcwd()
-    script_dir = os.path.dirname(os.path.abspath(script_path))
+    script_file_abs = script_file.resolve()
+    script_path = str(script_file_abs)
+    script_dir = script_file_abs.parent
     try:
         sys.argv = [script_path]
         if script_dir:
-            sys.path.insert(0, script_dir)
+            sys.path.insert(0, str(script_dir))
 
         if log_notifier is not None:
             sys.stdout = _TeeWriter(old_stdout, log_notifier)
@@ -502,7 +507,7 @@ def _on_exit_signal(signum, frame):
     sys.exit(1)
 
 
-def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
+def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int | None = None) -> None:
     """运行指定的脚本链。
 
     Args:
@@ -534,10 +539,20 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
             print_message(f'脚本链配置不存在 {chain_name}', "ERROR")
         else:
             attach_targets = chain_config.compute_attach_targets()
-            runtime_groups, skipped_messages = build_runtime_groups(
-                chain_config.script_list,
-                attach_targets,
-            )
+            try:
+                selection = build_runtime_selection(
+                    chain_config.script_list,
+                    attach_targets,
+                    debug_index=debug_index,
+                )
+            except ValueError as e:
+                print_message(str(e), 'ERROR')
+                return
+
+            if selection.debug_target is not None:
+                print_message(f'调试运行脚本链 {chain_name}: {selection.debug_target.script_display_name}')
+
+            runtime_groups, skipped_messages = resolve_runtime_groups(selection)
 
             for message in skipped_messages:
                 print_message(message)
@@ -554,13 +569,23 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
 
                 try:
                     if group.host.notify_start:
-                        _push_chain_notification(ctx, chain_name, '开始运行', group.host)
+                        _push_chain_notification(
+                            ctx,
+                            chain_name,
+                            '调试开始' if debug_index is not None else '开始运行',
+                            group.host,
+                        )
 
                     for script_config in group.scripts:
                         _run_group_script(script_config, log_notifier=log_notifier)
 
                     if group.host.notify_done:
-                        _push_chain_notification(ctx, chain_name, '运行结束', group.host)
+                        _push_chain_notification(
+                            ctx,
+                            chain_name,
+                            '调试结束' if debug_index is not None else '运行结束',
+                            group.host,
+                        )
                 finally:
                     if log_notifier is not None:
                         log_notifier.stop()
@@ -569,7 +594,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
                     print_message('10秒后开始下一个脚本')
                     time.sleep(10)
 
-            print_message('已完成全部脚本')
+            print_message('已完成调试脚本' if debug_index is not None else '已完成全部脚本')
 
         if shutdown_delay > 0:
             cmd_utils.shutdown_sys(shutdown_delay)
@@ -592,6 +617,7 @@ def run():
     run_chain(
         chain_name=args.chain,
         shutdown_delay=args.shutdown if args.shutdown else 0,
+        debug_index=args.debug_index,
     )
     sys.exit(0)
 
