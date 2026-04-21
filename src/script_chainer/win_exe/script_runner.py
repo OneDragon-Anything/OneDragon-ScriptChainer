@@ -7,6 +7,7 @@ import os
 import shlex
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -38,10 +39,12 @@ from script_chainer.utils.runner_log_utils import (
     RUNNER_LOGGER_NAME,
     configure_runner_runtime_logging,
 )
+from script_chainer.utils.wait_utils import sleep_interruptibly
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
 _console_ctrl_handler = None
+_shutdown_event = threading.Event()
 
 
 @dataclass
@@ -92,7 +95,7 @@ def _configure_runtime_logging() -> None:
 
 def print_message(message: str, level="INFO"):
     # 打印消息，带有时间戳和日志级别
-    time.sleep(0.1)
+    sleep_interruptibly(_shutdown_event, 0.1)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
     colors = {"INFO": Fore.CYAN, "ERROR": Fore.YELLOW + Style.BRIGHT, "PASS": Fore.GREEN}
     color = colors.get(level, Fore.WHITE)
@@ -209,7 +212,8 @@ def _wait_for_subprocess_ready(
             # 进程完全不存在
             if now - start_time > timeout:
                 break
-            time.sleep(1)
+            if sleep_interruptibly(_shutdown_event, 1):
+                break
             continue
 
         if pm.is_running():
@@ -235,7 +239,8 @@ def _wait_for_subprocess_ready(
         if now - start_time > timeout:
             break
 
-        time.sleep(1)
+        if sleep_interruptibly(_shutdown_event, 1):
+            break
 
     return False
 
@@ -308,7 +313,8 @@ def _monitor_script_done(
         if is_done:
             break
 
-        time.sleep(1)
+        if sleep_interruptibly(_shutdown_event, 1):
+            break
 
 
 def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
@@ -486,6 +492,7 @@ def _cleanup_active_pm():
 
 def _force_exit_current_process() -> None:
     """立刻退出当前进程，用于控制台关闭等不可恢复场景。"""
+    _shutdown_event.set()
     _cleanup_active_pm()
     os._exit(1)
 
@@ -524,6 +531,7 @@ def _on_exit_signal(signum, frame):
     """
     if sys.platform == 'win32' and signum == signal.SIGBREAK:
         _force_exit_current_process()
+    _shutdown_event.set()
     _cleanup_active_pm()
     sys.exit(1)
 
@@ -558,6 +566,7 @@ def run_chain(
         shutdown_delay: 运行后关机延迟秒数，0 表示不关机。
         debug_index: 仅调试运行指定下标的脚本。
     """
+    _shutdown_event.clear()
     _configure_runtime_logging()
 
     # 注册信号处理，确保点击控制台 X 或 Ctrl+C 时能清理子进程
@@ -693,7 +702,8 @@ def run_chain(
                 if i < len(chain_config.script_list) - 1 and any(_should_run(j) for j in range(i + 1, len(chain_config.script_list))):
                     if not next_attached:
                         print_message('10秒后开始下一个脚本')
-                        time.sleep(10)
+                        if sleep_interruptibly(_shutdown_event, 10):
+                            break
 
             # 确保最后的 log_notifier 被停止
             if log_notifier is not None:
@@ -706,7 +716,7 @@ def run_chain(
             print_message('准备关机')
 
         print_message('5秒后关闭本窗口')
-        time.sleep(5)
+        sleep_interruptibly(_shutdown_event, 5)
     finally:
         # 清理资源
         if ctx is not None:
