@@ -16,7 +16,6 @@ from colorama import Fore, Style, init
 
 from one_dragon.utils import cmd_utils, os_utils
 from script_chainer.config.script_config import (
-    AttachDirection,
     CheckDoneMethods,
     ScriptChainConfig,
     ScriptConfig,
@@ -31,6 +30,7 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
+from script_chainer.utils.runtime_group_utils import build_runtime_groups
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
@@ -92,6 +92,35 @@ def print_message(message: str, level="INFO"):
     color = colors.get(level, Fore.WHITE)
     print(f"{timestamp} | {color}{level}{Style.RESET_ALL} | {message}")
     log.info(message)
+
+
+def _push_chain_notification(
+    ctx: ScriptChainerContext | None,
+    chain_name: str,
+    action: str,
+    script_config: ScriptConfig,
+) -> None:
+    """按脚本配置推送脚本链通知。"""
+    if ctx is None:
+        return
+    ctx.push_service.push_async(
+        title=ctx.notify_config.title,
+        content=f'脚本链 {chain_name} {action}: {script_config.script_display_name}',
+    )
+
+
+def _run_group_script(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+) -> None:
+    """运行运行组中的单个脚本。"""
+    try:
+        if script_config.script_type == ScriptType.PYTHON:
+            _run_python_script(script_config, log_notifier=log_notifier)
+        else:
+            run_script(script_config, log_notifier=log_notifier)
+    except Exception:
+        log.error('脚本执行异常', exc_info=True)
 
 
 def _make_stdout_callback(
@@ -507,87 +536,41 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
         if not chain_config.is_file_exists():
             print_message(f'脚本链配置不存在 {chain_name}', "ERROR")
         else:
-            log_notifier: LogNotifier | None = None
             attach_targets = chain_config.compute_attach_targets()
+            runtime_groups, skipped_messages = build_runtime_groups(
+                chain_config.script_list,
+                attach_targets,
+            )
 
-            for i in range(len(chain_config.script_list)):
-                script_config = chain_config.script_list[i]
-                if not script_config.enabled:
-                    print_message(f'脚本已禁用 跳过 {script_config.script_display_name}')
-                    continue
+            for message in skipped_messages:
+                print_message(message)
 
-                # 被挂靠的目标脚本禁用时，跳过挂靠的 Python 脚本
-                attach_target = attach_targets[i]
-                if attach_target is not None and not attach_target.enabled:
-                    print_message(f'被挂靠脚本已禁用 跳过 {script_config.script_display_name}')
-                    continue
-
-                if script_config.notify_start:
-                    if ctx is not None:
-                        ctx.push_service.push_async(
-                            title=ctx.notify_config.title,
-                            content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
-                        )
-
-                # 判断是否挂靠到上一个脚本（复用其 log_notifier）
-                # 禁用脚本不参与挂靠，非挂靠脚本需要自己管理 log_notifier
-                attached_to_prev = (
-                    chain_config.is_attached_to_prev(i)
-                    and i > 0
-                    and chain_config.script_list[i - 1].enabled
-                )
-                if not attached_to_prev:
-                    if log_notifier is not None:
-                        log_notifier.stop()
-                        log_notifier = None
-
-                    # 前置脚本用被挂靠目标的配置创建 notifier
-                    notifier_config = attach_target if attach_target is not None else script_config
-
-                    if ctx is not None and notifier_config.notify_log_interval > 0:
-                        log_notifier = LogNotifier(
-                            ctx=ctx,
-                            title=f'{ctx.notify_config.title} - {notifier_config.script_display_name} 日志',
-                            interval=notifier_config.notify_log_interval,
-                        )
-                        log_notifier.start()
+            for group_idx, group in enumerate(runtime_groups):
+                log_notifier: LogNotifier | None = None
+                if ctx is not None and group.host.notify_log_interval > 0:
+                    log_notifier = LogNotifier(
+                        ctx=ctx,
+                        title=f'{ctx.notify_config.title} - {group.host.script_display_name} 日志',
+                        interval=group.host.notify_log_interval,
+                    )
+                    log_notifier.start()
 
                 try:
-                    if script_config.script_type == ScriptType.PYTHON:
-                        _run_python_script(script_config, log_notifier=log_notifier)
-                    else:
-                        run_script(script_config, log_notifier=log_notifier)
-                except Exception:
-                    log.error('脚本执行异常', exc_info=True)
+                    if group.host.notify_start:
+                        _push_chain_notification(ctx, chain_name, '开始运行', group.host)
 
-                # 禁用脚本不参与挂靠
-                next_attached = (
-                    chain_config.has_next_attached(i)
-                    and i + 1 < len(chain_config.script_list)
-                    and chain_config.script_list[i + 1].enabled
-                )
+                    for script_config in group.scripts:
+                        _run_group_script(script_config, log_notifier=log_notifier)
 
-                # 没有下一个挂靠脚本时，停止 log_notifier
-                if not next_attached:
+                    if group.host.notify_done:
+                        _push_chain_notification(ctx, chain_name, '运行结束', group.host)
+                finally:
                     if log_notifier is not None:
                         log_notifier.stop()
-                        log_notifier = None
 
-                if script_config.notify_done:
-                    if ctx is not None:
-                        ctx.push_service.push_async(
-                            title=ctx.notify_config.title,
-                            content=f'脚本链 {chain_name} 运行结束: {script_config.script_display_name}'
-                        )
-
-                if i < len(chain_config.script_list) - 1:
-                    if not next_attached:
-                        print_message('10秒后开始下一个脚本')
-                        time.sleep(10)
-
-            # 确保最后的 log_notifier 被停止
-            if log_notifier is not None:
-                log_notifier.stop()
+                if group_idx < len(runtime_groups) - 1:
+                    print_message('10秒后开始下一个脚本')
+                    time.sleep(10)
 
             print_message('已完成全部脚本')
 
