@@ -19,6 +19,7 @@ from script_chainer.config.script_config import (
     CheckDoneMethods,
     ScriptChainConfig,
     ScriptConfig,
+    ScriptType,
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.services.log_notifier import LogNotifier
@@ -29,9 +30,31 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
+from script_chainer.utils.runtime_group_utils import build_runtime_groups
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
+
+
+class _TeeWriter:
+    """包装 stdout，将每行输出同时写入 LogNotifier。"""
+
+    def __init__(self, original: object, notifier: LogNotifier) -> None:
+        self._original = original
+        self._notifier = notifier
+
+    def write(self, s: str) -> int:
+        result = self._original.write(s)
+        stripped = s.strip()
+        if stripped:
+            self._notifier.add(stripped)
+        return result
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    def __getattr__(self, name: str):
+        return getattr(self._original, name)
 
 
 def get_logger():
@@ -69,6 +92,35 @@ def print_message(message: str, level="INFO"):
     color = colors.get(level, Fore.WHITE)
     print(f"{timestamp} | {color}{level}{Style.RESET_ALL} | {message}")
     log.info(message)
+
+
+def _push_chain_notification(
+    ctx: ScriptChainerContext | None,
+    chain_name: str,
+    action: str,
+    script_config: ScriptConfig,
+) -> None:
+    """按脚本配置推送脚本链通知。"""
+    if ctx is None:
+        return
+    ctx.push_service.push_async(
+        title=ctx.notify_config.title,
+        content=f'脚本链 {chain_name} {action}: {script_config.script_display_name}',
+    )
+
+
+def _run_group_script(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+) -> None:
+    """运行运行组中的单个脚本。"""
+    try:
+        if script_config.script_type == ScriptType.PYTHON:
+            _run_python_script(script_config, log_notifier=log_notifier)
+        else:
+            run_script(script_config, log_notifier=log_notifier)
+    except Exception:
+        log.error('脚本执行异常', exc_info=True)
 
 
 def _make_stdout_callback(
@@ -361,6 +413,78 @@ def run_script(
     _active_pm = None
 
 
+def _run_python_script(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+) -> None:
+    """执行 Python 类型的脚本。
+
+    读取 .py 文件并用 exec() 在当前进程中执行。
+
+    Args:
+        script_config: 脚本配置（script_type == 'python'）。
+        log_notifier: 可选的日志通知器，用于定时推送日志。
+    """
+    script_path = script_config.script_path
+    display_name = script_config.script_display_name
+
+    invalid_msg = script_config.invalid_message
+    if invalid_msg is not None:
+        print_message(f'Python 脚本配置不合法 跳过运行 {invalid_msg}')
+        return
+
+    try:
+        with open(script_path, 'r', encoding='utf-8') as f:
+            code = f.read()
+    except Exception as e:
+        print_message(f'读取 Python 脚本失败 {display_name}: {e}', level='ERROR')
+        log.error('读取 Python 脚本失败', exc_info=True)
+        return
+
+    if not code or not code.strip():
+        print_message(f'Python 脚本为空 跳过 {display_name}')
+        return
+
+    print_message(f'执行 Python 脚本 {display_name}...')
+    old_argv = sys.argv[:]
+    old_sys_path = sys.path[:]
+    old_stdout = sys.stdout
+    old_cwd = os.getcwd()
+    script_dir = os.path.dirname(os.path.abspath(script_path))
+    try:
+        sys.argv = [script_path]
+        if script_dir:
+            sys.path.insert(0, script_dir)
+
+        if log_notifier is not None:
+            sys.stdout = _TeeWriter(old_stdout, log_notifier)
+
+        exec_globals = {
+            '__name__': '__main__',
+            '__file__': script_path,
+            '__package__': None,
+            '__spec__': None,
+            '__builtins__': __builtins__,
+        }
+        exec(compile(code, script_path, 'exec'), exec_globals)
+        print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
+    except SystemExit as e:
+        if e.code in (0, None):
+            print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
+        else:
+            print_message(f'Python 脚本执行失败 {display_name}: exit={e.code}', level='ERROR')
+            log.error('Python 脚本通过 SystemExit 退出: %s', e.code)
+    except Exception as e:
+        print_message(f'Python 脚本执行失败 {display_name}: {e}', level='ERROR')
+        log.error('Python 脚本执行失败', exc_info=True)
+    finally:
+        sys.stdout = old_stdout
+        sys.argv = old_argv
+        sys.path[:] = old_sys_path
+        with suppress(Exception):
+            os.chdir(old_cwd)
+
+
 def _cleanup_active_pm():
     """清理当前活跃的 ProcessManager 子进程。"""
     global _active_pm
@@ -412,41 +536,39 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0) -> None:
         if not chain_config.is_file_exists():
             print_message(f'脚本链配置不存在 {chain_name}', "ERROR")
         else:
-            for i in range(len(chain_config.script_list)):
-                script_config = chain_config.script_list[i]
-                if not script_config.enabled:
-                    print_message(f'脚本已禁用 跳过 {script_config.script_display_name}')
-                    continue
-                if script_config.notify_start:
-                    if ctx is not None:
-                        ctx.push_service.push_async(
-                            title=ctx.notify_config.title,
-                            content=f'脚本链 {chain_name} 开始运行: {script_config.script_display_name}'
-                        )
+            attach_targets = chain_config.compute_attach_targets()
+            runtime_groups, skipped_messages = build_runtime_groups(
+                chain_config.script_list,
+                attach_targets,
+            )
 
-                # 定时推送日志
+            for message in skipped_messages:
+                print_message(message)
+
+            for group_idx, group in enumerate(runtime_groups):
                 log_notifier: LogNotifier | None = None
-                if ctx is not None and script_config.notify_log_interval > 0:
+                if ctx is not None and group.host.notify_log_interval > 0:
                     log_notifier = LogNotifier(
                         ctx=ctx,
-                        title=f'{ctx.notify_config.title} - {script_config.script_display_name} 日志',
-                        interval=script_config.notify_log_interval,
+                        title=f'{ctx.notify_config.title} - {group.host.script_display_name} 日志',
+                        interval=group.host.notify_log_interval,
                     )
                     log_notifier.start()
 
                 try:
-                    run_script(script_config, log_notifier=log_notifier)
+                    if group.host.notify_start:
+                        _push_chain_notification(ctx, chain_name, '开始运行', group.host)
+
+                    for script_config in group.scripts:
+                        _run_group_script(script_config, log_notifier=log_notifier)
+
+                    if group.host.notify_done:
+                        _push_chain_notification(ctx, chain_name, '运行结束', group.host)
                 finally:
                     if log_notifier is not None:
                         log_notifier.stop()
 
-                if script_config.notify_done:
-                    if ctx is not None:
-                        ctx.push_service.push_async(
-                            title=ctx.notify_config.title,
-                            content=f'脚本链 {chain_name} 运行结束: {script_config.script_display_name}'
-                        )
-                if i < len(chain_config.script_list) - 1:
+                if group_idx < len(runtime_groups) - 1:
                     print_message('10秒后开始下一个脚本')
                     time.sleep(10)
 
