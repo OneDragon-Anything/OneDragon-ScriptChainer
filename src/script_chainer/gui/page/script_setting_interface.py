@@ -460,13 +460,13 @@ class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
 
     def _update_display(self) -> None:
         """更新卡片显示内容"""
-        title = self.config.game_display_name
+        title = self.config.game_display_name or '外部程序'
         if self.config.display_name:
             title += f' - {self.config.display_name}'
         self.content_widget.setTitle(title)
         script_name = (
             os.path.basename(self.config.script_path)
-            if self.config.script_path else '(未设置)'
+            if self.config.script_path else '未设置'
         )
         self.content_widget.setContent(script_name)
         self.enable_switch.setChecked(self.config.enabled)
