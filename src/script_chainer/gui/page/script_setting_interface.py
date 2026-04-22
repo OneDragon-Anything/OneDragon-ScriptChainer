@@ -652,6 +652,16 @@ class ScriptSettingInterface(VerticalScrollInterface):
     def get_content_widget(self) -> QWidget:
         content_widget = Column()
 
+        self.script_list_widget = DraggableList()
+        self.script_list_widget.order_changed_with_moved.connect(self.on_order_changed)
+        self.script_card_list: list[DraggableListItem] = []
+        content_widget.add_widget(self.script_list_widget)
+
+        content_widget.add_stretch(1)
+
+        return content_widget
+
+    def get_fixed_top_widget(self) -> QWidget | None:
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)
 
@@ -676,7 +686,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chain_toolbar = QWidget()
         toolbar_layout = QHBoxLayout(self.chain_toolbar)
-        toolbar_layout.setContentsMargins(0, 16, 16, 8)
+        toolbar_layout.setContentsMargins(8, 8, 16, 8)
         toolbar_layout.setSpacing(4)
         toolbar_layout.addWidget(SubtitleLabel('脚本链'))
         toolbar_layout.addSpacing(8)
@@ -688,16 +698,8 @@ class ScriptSettingInterface(VerticalScrollInterface):
         toolbar_layout.addWidget(self.run_chain_btn)
         toolbar_layout.addSpacing(4)
         toolbar_layout.addWidget(self.add_script_btn)
-        content_widget.add_widget(self.chain_toolbar)
 
-        self.script_list_widget = DraggableList()
-        self.script_list_widget.order_changed_with_moved.connect(self.on_order_changed)
-        self.script_card_list: list[DraggableListItem] = []
-        content_widget.add_widget(self.script_list_widget)
-
-        content_widget.add_stretch(1)
-
-        return content_widget
+        return self.chain_toolbar
 
     def on_interface_shown(self) -> None:
         VerticalScrollInterface.on_interface_shown(self)
