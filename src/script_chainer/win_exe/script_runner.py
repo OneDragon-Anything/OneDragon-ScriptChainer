@@ -518,6 +518,8 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
     Args:
         chain_name: 脚本链名称。
         shutdown_delay: 运行后关机延迟秒数，0 表示不关机。
+        debug_index: 调试脚本下标，None 表示运行整个脚本链，非负整数表示仅调试该下标脚本，
+            并按编排/挂靠关系一并纳入与其关联的脚本。
     """
     _configure_runtime_logging()
 
