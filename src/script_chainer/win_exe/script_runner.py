@@ -459,8 +459,7 @@ def _run_python_script(
     script_dir = script_file_abs.parent
     try:
         sys.argv = [script_path]
-        if script_dir:
-            sys.path.insert(0, str(script_dir))
+        sys.path.insert(0, str(script_dir))
 
         if log_notifier is not None:
             sys.stdout = _TeeWriter(old_stdout, log_notifier)
