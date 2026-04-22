@@ -1,6 +1,7 @@
-import os
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
+from pathlib import Path
 
 from one_dragon.base.config.config_item import ConfigItem, get_config_item_from_enum
 from one_dragon.base.config.yaml_config import YamlConfig
@@ -28,7 +29,7 @@ class ScriptProcessName(Enum):
 class GameProcessName(Enum):
 
     GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='YuanShen.exe')
-    GENSHIN_IMPACT_GLOBAL = ConfigItem(label='原神（国际服）', value='GenshinImpact.exe')
+    GENSHIN_IMPACT_GLOBAL = ConfigItem(label='原神 · 国际服', value='GenshinImpact.exe')
     STAR_RAIL_CN = ConfigItem(label='崩坏：星穹铁道', value='StarRail.exe')
     ZZZ_CN = ConfigItem(label='绝区零', value='ZenlessZoneZero.exe')
     HONKAI_IMPACT_CN = ConfigItem(label='崩坏3', value='BH3.exe')
@@ -36,10 +37,22 @@ class GameProcessName(Enum):
     MUMU = ConfigItem(label='MUMU模拟器', value='MuMuNxDevice.exe')
 
 
+class ScriptType:
+    EXTERNAL = 'external'
+    PYTHON = 'python'
+
+
+class AttachDirection:
+    NONE = ''
+    PRE = 'pre'
+    POST = 'post'
+
 
 @dataclass
 class ScriptConfig:
 
+    display_name: str = ''
+    script_type: str = ScriptType.EXTERNAL
     script_path: str = ''
     script_process_name: str = ''
     game_process_name: str = ''
@@ -50,7 +63,9 @@ class ScriptConfig:
     script_arguments: str = ''
     notify_start: bool = True
     notify_done: bool = True
+    notify_log_interval: int = 0
     enabled: bool = True
+    attach_direction: str = AttachDirection.NONE
 
     # 不参与序列化的元数据
     idx: int = field(default=0, repr=False, compare=False)
@@ -72,6 +87,15 @@ class ScriptConfig:
         """创建默认配置。"""
         return cls(check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value)
 
+    @classmethod
+    def create_python_default(cls) -> 'ScriptConfig':
+        """创建 Python 脚本类型的默认配置。"""
+        return cls(
+            script_type=ScriptType.PYTHON,
+            notify_start=False,
+            notify_done=False,
+        )
+
     def copy(self) -> 'ScriptConfig':
         """深拷贝（保留 idx）。"""
         new = self.from_dict(self.to_dict())
@@ -80,7 +104,11 @@ class ScriptConfig:
 
     @property
     def script_display_name(self) -> str:
-        return os.path.basename(self.script_path)
+        if self.display_name:
+            return self.display_name
+        if self.script_path:
+            return Path(self.script_path).name
+        return '(未设置)'
 
     @property
     def game_display_name(self) -> str:
@@ -97,12 +125,16 @@ class ScriptConfig:
 
     @property
     def invalid_message(self) -> str | None:
-        """
-        当前配置的非法信息
-        """
+        if self.script_type == ScriptType.PYTHON:
+            if not self.script_path:
+                return 'Python 脚本路径为空'
+            elif not Path(self.script_path).exists():
+                return f'Python 脚本不存在 {self.script_path}'
+            return None
+
         if self.script_path is None or len(self.script_path) == 0:
             return '脚本路径为空'
-        elif not os.path.exists(self.script_path):
+        elif not Path(self.script_path).exists():
             return f'脚本路径不存在 {self.script_path}'
         elif get_config_item_from_enum(CheckDoneMethods, self.check_done) is None:
             return f'检查完成方式非法 {self.check_done}'
@@ -140,6 +172,79 @@ class ScriptChainConfig(YamlConfig):
         ]
         self.init_idx()
 
+    def _get_script_chain_dir(self) -> Path:
+        return Path(self.file_path).parent
+
+    def _get_python_scripts_dir(self) -> Path:
+        d = self._get_script_chain_dir() / 'scripts'
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def get_python_script_content(self, idx: int) -> str:
+        p = Path(self.script_list[idx].script_path) if self.script_list[idx].script_path else None
+        if p and p.exists():
+            return p.read_text(encoding='utf-8')
+        return ''
+
+    def save_python_script(self, idx: int, code: str) -> str:
+        path = self.script_list[idx].script_path
+        if not path:
+            num = self._next_python_script_number()
+            path = str(self._get_python_scripts_dir() / f'{self.module_name}_{num}.py')
+            self.script_list[idx].script_path = path
+            self.save()
+        Path(path).write_text(code, encoding='utf-8')
+        return path
+
+    def _is_managed_script(self, path: str) -> bool:
+        """判断脚本文件是否在 scripts/ 管理目录内。"""
+        try:
+            Path(path).resolve().relative_to(self._get_python_scripts_dir().resolve())
+            return True
+        except ValueError:
+            return False
+
+    def _next_python_script_number(self) -> int:
+        """获取下一个可用的 Python 脚本编号（从目录中已有文件推算）。"""
+        existing = set()
+        prefix = f'{self.module_name}_'
+        scripts_dir = self._get_python_scripts_dir()
+        for p in scripts_dir.iterdir():
+            if p.is_file() and p.name.startswith(prefix) and p.suffix == '.py':
+                with suppress(ValueError):
+                    existing.add(int(p.stem[len(prefix):]))
+        n = 0
+        while n in existing:
+            n += 1
+        return n
+
+    def add_python_script(self) -> ScriptConfig:
+        new_config = ScriptConfig.create_python_default()
+        self.script_list.append(new_config)
+        self.init_idx()
+        num = self._next_python_script_number()
+        p = self._get_python_scripts_dir() / f'{self.module_name}_{num}.py'
+        new_config.script_path = str(p)
+        p.write_text('# Python 脚本\n', encoding='utf-8')
+        self.save()
+        return new_config
+
+    def add_python_script_from_file(self, file_path: str) -> ScriptConfig:
+        """添加一个引用外部文件的 Python 脚本配置。
+
+        Args:
+            file_path: 外部 .py 文件的路径。
+
+        Returns:
+            新创建的 ScriptConfig。
+        """
+        new_config = ScriptConfig.create_python_default()
+        new_config.script_path = file_path
+        self.script_list.append(new_config)
+        self.init_idx()
+        self.save()
+        return new_config
+
     def init_idx(self) -> None:
         """初始化下标"""
         for i in range(len(self.script_list)):
@@ -171,19 +276,13 @@ class ScriptChainConfig(YamlConfig):
         """
         if index < 0 or index >= len(self.script_list):
             return
+        config = self.script_list[index]
+        # Python 脚本删除时同时移除对应的 .py 文件（仅限 scripts/ 目录内）
+        if config.script_type == ScriptType.PYTHON and config.script_path:
+            if self._is_managed_script(config.script_path):
+                with suppress(OSError):
+                    Path(config.script_path).unlink()
         del self.script_list[index]
-        self.init_idx()
-        self.save()
-
-    def move_up(self, index: int) -> None:
-        """向上移动一个配置。
-
-        Args:
-            index: 配置下标。
-        """
-        if index <= 0 or index >= len(self.script_list):
-            return
-        self.script_list[index], self.script_list[index - 1] = self.script_list[index - 1], self.script_list[index]
         self.init_idx()
         self.save()
 
@@ -211,3 +310,69 @@ class ScriptChainConfig(YamlConfig):
         self.script_list[config.idx] = config
         self.init_idx()
         self.save()
+
+    def is_attached_to_prev(self, idx: int) -> bool:
+        """判断第 idx 个脚本是否挂靠到前一个脚本。
+
+        满足以下任一条件即视为挂靠：
+        - 当前脚本是 Python 且 attach_direction == POST
+        - 前一个脚本是 Python 且 attach_direction == PRE
+        """
+        if idx <= 0 or idx >= len(self.script_list):
+            return False
+        cur = self.script_list[idx]
+        prev = self.script_list[idx - 1]
+        return (
+            (cur.script_type == ScriptType.PYTHON
+             and cur.attach_direction == AttachDirection.POST)
+            or (prev.script_type == ScriptType.PYTHON
+                and prev.attach_direction == AttachDirection.PRE)
+        )
+
+    def has_next_attached(self, idx: int) -> bool:
+        """判断第 idx 个脚本之后是否有挂靠脚本。
+
+        满足以下任一条件即视为有挂靠：
+        - 当前脚本是 Python 且 attach_direction == PRE
+        - 下一个脚本是 Python 且 attach_direction == POST
+        """
+        if idx < 0 or idx >= len(self.script_list) - 1:
+            return False
+        cur = self.script_list[idx]
+        nxt = self.script_list[idx + 1]
+        return (
+            (cur.script_type == ScriptType.PYTHON
+             and cur.attach_direction == AttachDirection.PRE)
+            or (nxt.script_type == ScriptType.PYTHON
+                and nxt.attach_direction == AttachDirection.POST)
+        )
+
+    def compute_attach_targets(self) -> list['ScriptConfig | None']:
+        """预计算每个脚本的最终挂靠目标（O(n) 总时间）。
+
+        Returns:
+            长度等于 script_list 的列表，
+            targets[i] 为第 i 个脚本的被挂靠目标，非挂靠脚本为 None。
+        """
+        n = len(self.script_list)
+        targets: list[ScriptConfig | None] = [None] * n
+
+        # POST（后置）：目标在前方，正向扫描时记录最近的非 POST 脚本
+        post_target: ScriptConfig | None = None
+        for i in range(n):
+            sc = self.script_list[i]
+            if sc.script_type == ScriptType.PYTHON and sc.attach_direction == AttachDirection.POST:
+                targets[i] = post_target
+            else:
+                post_target = sc
+
+        # PRE（前置）：目标在后方，逆向扫描时记录最近的非 PRE 脚本
+        pre_target: ScriptConfig | None = None
+        for i in range(n - 1, -1, -1):
+            sc = self.script_list[i]
+            if sc.script_type == ScriptType.PYTHON and sc.attach_direction == AttachDirection.PRE:
+                targets[i] = pre_target
+            else:
+                pre_target = sc
+
+        return targets

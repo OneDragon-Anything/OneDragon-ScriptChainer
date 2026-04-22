@@ -1,20 +1,24 @@
 import os
 import shlex
+import shutil
+import sys
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QDialog, QFileDialog, QWidget
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QIcon
+from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
+    Action,
     CaptionLabel,
     Dialog,
+    DoubleSpinBox,
     FluentIcon,
     HyperlinkCard,
     InfoBar,
     InfoBarPosition,
     LineEdit,
     MessageBoxBase,
-    PrimaryPushButton,
-    PushButton,
+    PrimaryDropDownPushButton,
+    RoundMenu,
     SubtitleLabel,
     SwitchButton,
     TransparentToolButton,
@@ -25,6 +29,9 @@ from one_dragon.utils.i18_utils import gt
 from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.combo_box import ComboBox
 from one_dragon_qt.widgets.draggable_list import DraggableList, DraggableListItem
+from one_dragon_qt.widgets.setting_card.code_editor_setting_card import (
+    PythonCodeEditorDialog,
+)
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
     ComboBoxSettingCard,
 )
@@ -37,13 +44,16 @@ from one_dragon_qt.widgets.setting_card.multi_push_setting_card import (
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
 from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
+from one_dragon_qt.widgets.tag_label import TagLabel
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.config.script_config import (
+    AttachDirection,
     CheckDoneMethods,
     GameProcessName,
     ScriptChainConfig,
     ScriptConfig,
     ScriptProcessName,
+    ScriptType,
 )
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.utils.process_utils import launch_in_terminal
@@ -149,16 +159,33 @@ class ScriptEditDialog(MessageBoxBase):
         self.notify_start_opt = SwitchSettingCard(
             icon=FluentIcon.MESSAGE,
             title='脚本开始时发送通知',
-            content='如果开启 则会在脚本开始时发送通知'
         )
         self.viewLayout.addWidget(self.notify_start_opt)
 
         self.notify_done_opt = SwitchSettingCard(
             icon=FluentIcon.MESSAGE,
             title='脚本结束时发送通知',
-            content='如果开启 则会在脚本结束时发送通知'
         )
         self.viewLayout.addWidget(self.notify_done_opt)
+
+        self.notify_log_interval_input = DoubleSpinBox()
+        self.notify_log_interval_input.setRange(0.5, 60)
+        self.notify_log_interval_input.setSingleStep(0.5)
+        self.notify_log_interval_input.setDecimals(1)
+        self.notify_log_interval_input.setFixedWidth(140)
+
+        self.notify_log_switch = SwitchButton()
+        self.notify_log_switch.setOnText('')
+        self.notify_log_switch.setOffText('')
+        self.notify_log_switch.checkedChanged.connect(self._on_notify_log_toggled)
+
+        self.notify_log_opt = MultiPushSettingCard(
+            icon=FluentIcon.SEND,
+            title='定时推送运行日志',
+            content='按设定间隔（分钟）将命令行输出合并推送',
+            btn_list=[self.notify_log_interval_input, self.notify_log_switch],
+        )
+        self.viewLayout.addWidget(self.notify_log_opt)
 
         self.init_by_config(config)
 
@@ -176,6 +203,21 @@ class ScriptEditDialog(MessageBoxBase):
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
         self.notify_start_opt.setValue(config.notify_start, emit_signal=False)
         self.notify_done_opt.setValue(config.notify_done, emit_signal=False)
+
+        notify_log_enabled = config.notify_log_interval > 0
+        self.notify_log_switch.blockSignals(True)
+        self.notify_log_switch.setChecked(notify_log_enabled)
+        self.notify_log_switch.blockSignals(False)
+        interval_sec = config.notify_log_interval if notify_log_enabled else 300
+        minutes = interval_sec / 60
+        self.notify_log_interval_input.blockSignals(True)
+        self.notify_log_interval_input.setValue(minutes)
+        self.notify_log_interval_input.blockSignals(False)
+        self.notify_log_interval_input.setEnabled(notify_log_enabled)
+
+    def _on_notify_log_toggled(self, checked: bool) -> None:
+        """日志推送开关切换时启用/禁用间隔输入框"""
+        self.notify_log_interval_input.setEnabled(checked)
 
     @staticmethod
     def _set_editable_combo_value(card: EditableComboBoxSettingCard, value: str) -> None:
@@ -232,6 +274,12 @@ class ScriptEditDialog(MessageBoxBase):
         config.notify_start = self.notify_start_opt.btn.isChecked()
         config.notify_done = self.notify_done_opt.btn.isChecked()
 
+        if self.notify_log_switch.isChecked():
+            minutes = self.notify_log_interval_input.value()
+            config.notify_log_interval = max(30, int(minutes * 60))
+        else:
+            config.notify_log_interval = 0
+
         return config
 
     def validate(self) -> bool:
@@ -247,7 +295,98 @@ class ScriptEditDialog(MessageBoxBase):
             return True
 
 
-class ScriptSettingCard(DraggableListItem):
+class ScriptCardMixin:
+    """脚本卡片公共逻辑 Mixin。
+
+    提供：重命名（hover 铅笔）、开关、删除、init_by_config、after_update_item。
+    子类需在 __init__ 中：
+      1. 设置 self.config
+      2. 调用 _setup_common_widgets() 获取 enable_switch / edit_btn / delete_btn
+      3. 创建 content_widget 后调用 _setup_rename_btn(content_widget)
+      4. 最后调用 _update_display()
+    并实现 _update_display()。
+    """
+
+    config: ScriptConfig
+    value_changed: Signal
+    deleted: Signal
+
+    # ── 公共控件创建 ──
+
+    def _setup_common_widgets(self) -> None:
+        self.enable_switch = SwitchButton()
+        self.enable_switch.setOnText('')
+        self.enable_switch.setOffText('')
+        self.enable_switch.setChecked(self.config.enabled)
+        self.enable_switch.checkedChanged.connect(self.on_enable_changed)
+
+        self.edit_btn = TransparentToolButton(FluentIcon.EDIT)
+        self.edit_btn.setToolTip('编辑')
+        self.edit_btn.clicked.connect(self.on_edit_clicked)
+
+        self.delete_btn = TransparentToolButton(FluentIcon.DELETE, None)
+        self.delete_btn.setToolTip('删除')
+        self.delete_btn.clicked.connect(self.on_delete_clicked)
+
+    def _setup_rename_btn(self, content_widget: MultiPushSettingCard) -> None:
+        self._rename_btn = TransparentToolButton(FluentIcon.EDIT, None)
+        self._rename_btn.setFixedSize(20, 20)
+        self._rename_btn.setIcon(QIcon())
+        self._rename_btn.setToolTip('重命名')
+        self._rename_btn.clicked.connect(self._on_rename)
+
+        self._title_row = QHBoxLayout()
+        self._title_row.setContentsMargins(0, 0, 0, 0)
+        self._title_row.setSpacing(4)
+        content_widget.vBoxLayout.removeWidget(content_widget.titleLabel)
+        # 子类可在 titleLabel 前后插入 tag
+        self._title_row.addWidget(content_widget.titleLabel)
+        self._title_row.addWidget(self._rename_btn)
+        self._title_row.addStretch()
+        content_widget.vBoxLayout.insertLayout(0, self._title_row)
+
+    # ── 公共事件处理 ──
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self._rename_btn.setIcon(FluentIcon.EDIT.icon())
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self._rename_btn.setIcon(QIcon())
+
+    def on_enable_changed(self, checked: bool) -> None:
+        self.config.enabled = checked
+        self.value_changed.emit(self.config)
+
+    def on_delete_clicked(self) -> None:
+        dialog = Dialog('删除脚本', f'确定要删除 {self.config.script_display_name} 吗？', parent=self.window())
+        dialog.setTitleBarVisible(False)
+        dialog.yesButton.setText('删除')
+        dialog.cancelButton.setText('取消')
+        if dialog.exec():
+            self.deleted.emit(self.index)
+
+    def _on_rename(self) -> None:
+        dialog = ScriptRenameDialog(self.config.display_name, parent=self.window())
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.config.display_name = dialog.get_new_name()
+            self._update_display()
+            self.value_changed.emit(self.config)
+
+    # ── 公共数据方法 ──
+
+    def init_by_config(self, config: ScriptConfig) -> None:
+        self.config = config
+        self.data = config
+        self._update_display()
+
+    def after_update_item(self) -> None:
+        self.config = self.data
+        self._update_display()
+
+
+class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
 
     value_changed = Signal(ScriptConfig)
     deleted = Signal(int)
@@ -255,25 +394,14 @@ class ScriptSettingCard(DraggableListItem):
     def __init__(self, config: ScriptConfig, index: int = 0, parent=None,
                  enable_opacity_effect: bool = True):
         self.config: ScriptConfig = config
-
-        self.enable_switch = SwitchButton()
-        self.enable_switch.setOnText('')
-        self.enable_switch.setOffText('')
-        self.enable_switch.setChecked(config.enabled)
-        self.enable_switch.checkedChanged.connect(self.on_enable_changed)
+        self._setup_common_widgets()
 
         self.debug_btn = TransparentToolButton(FluentIcon.PLAY, None)
         self.debug_btn.setToolTip('调试运行')
         self.debug_btn.clicked.connect(self.on_debug_clicked)
 
-        self.edit_btn: PushButton = PushButton(text='编辑')
-        self.edit_btn.clicked.connect(self.on_edit_clicked)
-
-        self.delete_btn: PushButton = PushButton(text='删除')
-        self.delete_btn.clicked.connect(self.on_delete_clicked)
-
         content_widget = MultiPushSettingCard(
-            icon=FluentIcon.SETTING,
+            icon=FluentIcon.GAME,
             title='游戏',
             content='脚本',
             parent=parent,
@@ -284,6 +412,8 @@ class ScriptSettingCard(DraggableListItem):
                 self.enable_switch,
             ]
         )
+
+        self._setup_rename_btn(content_widget)
 
         DraggableListItem.__init__(
             self,
@@ -296,11 +426,6 @@ class ScriptSettingCard(DraggableListItem):
 
         self.content_widget: MultiPushSettingCard
         self._update_display()
-
-    def on_enable_changed(self, checked: bool) -> None:
-        """开关状态变化"""
-        self.config.enabled = checked
-        self.value_changed.emit(self.config)
 
     def on_debug_clicked(self) -> None:
         """调试运行当前脚本"""
@@ -339,30 +464,184 @@ class ScriptSettingCard(DraggableListItem):
             self.init_by_config(config)
             self.value_changed.emit(config)
 
-    def init_by_config(self, config: ScriptConfig) -> None:
-        """根据配置初始化。
-
-        Args:
-            config: 脚本配置。
-        """
-        self.config = config
-        self.data = config
-        self._update_display()
-
     def _update_display(self) -> None:
         """更新卡片显示内容"""
-        self.content_widget.setTitle(f'游戏 {self.config.game_display_name}')
-        self.content_widget.setContent(f'脚本 {self.config.script_display_name}')
+        title = self.config.game_display_name
+        if self.config.display_name:
+            title += f' - {self.config.display_name}'
+        self.content_widget.setTitle(title)
+        script_name = (
+            os.path.basename(self.config.script_path)
+            if self.config.script_path else '(未设置)'
+        )
+        self.content_widget.setContent(script_name)
         self.enable_switch.setChecked(self.config.enabled)
 
-    def after_update_item(self) -> None:
-        """DraggableListItem 更新后的钩子"""
-        self.config = self.data
+
+class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
+    """Python 脚本卡片，可拖拽排序，与普通脚本卡片同级。
+
+    支持通过 ↑/↓ 按钮挂靠到相邻脚本，作为前置/后置脚本。
+    挂靠后卡片间距缩小，表示依附关系。
+    """
+
+    value_changed = Signal(ScriptConfig)
+    deleted = Signal(int)
+    attach_changed = Signal()
+
+    def __init__(self, config: ScriptConfig, chain_config: ScriptChainConfig,
+                 index: int = 0, parent=None,
+                 enable_opacity_effect: bool = True):
+        self.config: ScriptConfig = config
+        self.chain_config: ScriptChainConfig = chain_config
+        self._setup_common_widgets()
+
+        self.attach_up_btn = TransparentToolButton(FluentIcon.UP, None)
+        self.attach_up_btn.setToolTip('挂靠到上方脚本（作为其后置脚本）')
+        self.attach_up_btn.clicked.connect(self._on_attach_up)
+
+        self.attach_down_btn = TransparentToolButton(FluentIcon.DOWN, None)
+        self.attach_down_btn.setToolTip('挂靠到下方脚本（作为其前置脚本）')
+        self.attach_down_btn.clicked.connect(self._on_attach_down)
+
+        self.run_btn = TransparentToolButton(FluentIcon.PLAY, None)
+        self.run_btn.setToolTip('运行')
+        self.run_btn.clicked.connect(self.on_run_clicked)
+
+        content_widget = MultiPushSettingCard(
+            icon=FluentIcon.CODE,
+            title=self._get_title(),
+            content=self._get_display_name(),
+            btn_list=[
+                self.attach_up_btn,
+                self.attach_down_btn,
+                self.run_btn,
+                self.edit_btn,
+                self.delete_btn,
+                self.enable_switch,
+            ],
+        )
+
+        self._setup_rename_btn(content_widget)
+
+        DraggableListItem.__init__(
+            self, content_widget=content_widget,
+            data=config, index=index,
+            enable_opacity_effect=enable_opacity_effect,
+            parent=parent,
+        )
+        self.content_widget: MultiPushSettingCard = content_widget
+
+        # 标签插入 title_row：titleLabel [↑后置/↓前置] [外部] [rename_btn] [stretch]
+        self._post_tag = TagLabel('↑ 后置', color='#E08020')
+        self._pre_tag = TagLabel('↓ 前置', color='#E08020')
+        self._external_tag = TagLabel('外部')
+
+        # 状态 tag 插到 rename_btn 前面
+        rename_idx = self._title_row.indexOf(self._rename_btn)
+        self._title_row.insertWidget(rename_idx, self._external_tag)
+        self._title_row.insertWidget(rename_idx, self._pre_tag)
+        self._title_row.insertWidget(rename_idx, self._post_tag)
+
         self._update_display()
 
-    def on_delete_clicked(self) -> None:
-        """删除"""
-        self.deleted.emit(self.index)
+    def _get_title(self) -> str:
+        if self.config.display_name:
+            return self.config.display_name
+        return 'Python 脚本'
+
+    def _get_display_name(self) -> str:
+        if self.config.script_path:
+            return os.path.basename(self.config.script_path)
+        return '(空)'
+
+    def _on_attach_up(self) -> None:
+        """切换向上挂靠"""
+        if self.config.attach_direction == AttachDirection.POST:
+            self.config.attach_direction = AttachDirection.NONE
+        else:
+            if self.index <= 0:
+                _show_warning(self.window(), '无法挂靠', '上方没有可挂靠的脚本')
+                return
+            self.config.attach_direction = AttachDirection.POST
+        self._update_display()
+        self.value_changed.emit(self.config)
+        self.attach_changed.emit()
+
+    def _on_attach_down(self) -> None:
+        """切换向下挂靠"""
+        if self.config.attach_direction == AttachDirection.PRE:
+            self.config.attach_direction = AttachDirection.NONE
+        else:
+            if self.index >= len(self.chain_config.script_list) - 1:
+                _show_warning(self.window(), '无法挂靠', '下方没有可挂靠的脚本')
+                return
+            self.config.attach_direction = AttachDirection.PRE
+        self._update_display()
+        self.value_changed.emit(self.config)
+        self.attach_changed.emit()
+
+    def on_run_clicked(self) -> None:
+        """运行 Python 脚本"""
+        path = self.config.script_path
+        if not path or not os.path.exists(path):
+            _show_warning(self.window(), '无法运行', 'Python 脚本文件不存在')
+            return
+        if getattr(sys, 'frozen', False):
+            python = shutil.which('python') or shutil.which('python3')
+            if not python:
+                _show_warning(self.window(), '无法运行', '未找到系统 Python，请安装 Python 并添加到 PATH')
+                return
+        else:
+            python = sys.executable
+        try:
+            launch_in_terminal(
+                command=[python, path],
+                cwd=os.path.dirname(path) or None,
+                title=f'运行 {os.path.basename(path)}',
+            )
+            _show_success(self.window(), '运行', f'已启动 {os.path.basename(path)}')
+        except Exception as e:
+            _show_error(self.window(), '运行失败', str(e))
+
+    def on_edit_clicked(self) -> None:
+        """编辑 Python 脚本。外部脚本直接调用外部编辑器，内部脚本弹窗编辑。"""
+        path = self.config.script_path
+        if path and not self.chain_config._is_managed_script(path):
+            if os.name == 'nt':
+                try:
+                    os.startfile(path, 'edit')
+                except (AttributeError, OSError) as e:
+                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
+            else:
+                try:
+                    if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+                        raise OSError('系统默认编辑器未能打开该文件')
+                except OSError as e:
+                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
+            return
+        code = self.chain_config.get_python_script_content(self.config.idx)
+        dialog = PythonCodeEditorDialog(
+            parent=self.window(),
+            title='Python 脚本',
+            initial_code=code,
+            script_path=path,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.chain_config.save_python_script(self.config.idx, dialog.get_code())
+            self._update_display()
+
+    def _update_display(self) -> None:
+        self.content_widget.setTitle(self._get_title())
+        self.content_widget.setContent(self._get_display_name())
+        self.enable_switch.setChecked(self.config.enabled)
+        self._post_tag.setVisible(self.config.attach_direction == AttachDirection.POST)
+        self._pre_tag.setVisible(self.config.attach_direction == AttachDirection.PRE)
+        is_external = bool(
+            self.config.script_path
+            and not self.chain_config._is_managed_script(self.config.script_path)
+        )
+        self._external_tag.setVisible(is_external)
 
 
 class ScriptSettingInterface(VerticalScrollInterface):
@@ -390,32 +669,42 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)
-        self.add_chain_btn: PushButton = PrimaryPushButton(text='新增')
+
+        self.add_chain_btn = TransparentToolButton(FluentIcon.ADD)
+        self.add_chain_btn.setToolTip('新建脚本链')
         self.add_chain_btn.clicked.connect(self.on_add_chain_clicked)
-        self.rename_chain_btn: PushButton = PushButton(text='重命名')
+        self.rename_chain_btn = TransparentToolButton(FluentIcon.EDIT)
+        self.rename_chain_btn.setToolTip('重命名')
         self.rename_chain_btn.clicked.connect(self.on_rename_chain_clicked)
-        self.delete_chain_btn: PushButton = PushButton(text='删除')
+        self.delete_chain_btn = TransparentToolButton(FluentIcon.DELETE)
+        self.delete_chain_btn.setToolTip('删除')
         self.delete_chain_btn.clicked.connect(self.on_delete_chain_clicked)
-        self.chain_opt = MultiPushSettingCard(
-            icon=FluentIcon.SETTING,
-            title='脚本链',
-            btn_list=[
-                self.chain_combo_box,
-                self.add_chain_btn,
-                self.rename_chain_btn,
-                self.delete_chain_btn,
-            ]
-        )
-        content_widget.add_widget(self.chain_opt)
+
+        add_script_menu = RoundMenu(parent=self)
+        add_script_menu.addAction(Action(FluentIcon.APPLICATION, '启动程序', triggered=self.on_add_script_clicked))
+        add_script_menu.addAction(Action(FluentIcon.CODE, '新建 Python 脚本', triggered=self.on_add_python_script_clicked))
+        add_script_menu.addAction(Action(FluentIcon.DOCUMENT, '选择已有 Python 脚本', triggered=self.on_import_python_script_clicked))
+        self.add_script_btn = PrimaryDropDownPushButton(text='新增脚本')
+        self.add_script_btn.setMenu(add_script_menu)
+
+        self.chain_toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(self.chain_toolbar)
+        toolbar_layout.setContentsMargins(0, 8, 16, 8)
+        toolbar_layout.setSpacing(4)
+        toolbar_layout.addWidget(SubtitleLabel('脚本链'))
+        toolbar_layout.addSpacing(8)
+        toolbar_layout.addWidget(self.chain_combo_box)
+        toolbar_layout.addWidget(self.add_chain_btn)
+        toolbar_layout.addWidget(self.rename_chain_btn)
+        toolbar_layout.addWidget(self.delete_chain_btn)
+        toolbar_layout.addStretch(1)
+        toolbar_layout.addWidget(self.add_script_btn)
+        content_widget.add_widget(self.chain_toolbar)
 
         self.script_list_widget = DraggableList()
         self.script_list_widget.order_changed.connect(self.on_order_changed)
-        self.script_card_list: list[ScriptSettingCard] = []
+        self.script_card_list: list[DraggableListItem] = []
         content_widget.add_widget(self.script_list_widget)
-
-        self.add_script_btn = PrimaryPushButton(text='增加脚本')
-        self.add_script_btn.clicked.connect(self.on_add_script_clicked)
-        content_widget.add_widget(self.add_script_btn)
 
         content_widget.add_stretch(1)
 
@@ -459,6 +748,8 @@ class ScriptSettingInterface(VerticalScrollInterface):
         """移除一个脚本链"""
         dialog = Dialog("警告", "你确定要删除这个脚本链吗？\n删除之后无法恢复！", parent=self.window())
         dialog.setTitleBarVisible(False)
+        dialog.yesButton.setText("删除")
+        dialog.cancelButton.setText("取消")
         if dialog.exec():
             if self.chosen_config is not None:
                 self.ctx.remove_script_chain_config(self.chosen_config)
@@ -491,6 +782,25 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.chosen_config.add_one()
         self.update_chain_display()
 
+    def on_add_python_script_clicked(self) -> None:
+        """新增一个 Python 脚本"""
+        if self.chosen_config is None:
+            return
+        self.chosen_config.add_python_script()
+        self.update_chain_display()
+
+    def on_import_python_script_clicked(self) -> None:
+        """选择已有的 Python 脚本文件"""
+        if self.chosen_config is None:
+            return
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, '选择 Python 脚本', '', 'Python 文件 (*.py)'
+        )
+        if not file_path:
+            return
+        self.chosen_config.add_python_script_from_file(file_path)
+        self.update_chain_display()
+
     def update_chain_display(self) -> None:
         """更新脚本链的显示"""
         chosen: bool = self.chosen_config is not None
@@ -509,16 +819,23 @@ class ScriptSettingInterface(VerticalScrollInterface):
         if self.chosen_config is None:
             return
 
+        # 取消列表自带的 spacing，改用每张卡片的 margin 控制间距
+        self.script_list_widget._layout.setSpacing(0)
+
         for i, script_config in enumerate(self.chosen_config.script_list):
-            card = ScriptSettingCard(script_config, index=i)
+            if script_config.script_type == ScriptType.PYTHON:
+                card = PythonScriptSettingCard(
+                    script_config, chain_config=self.chosen_config, index=i)
+                card.attach_changed.connect(self._update_attach_margins)
+            else:
+                card = ScriptSettingCard(script_config, index=i)
             self.script_card_list.append(card)
             self.script_list_widget.add_list_item(card)
 
-            # 移除卡片的 margins，使列表项之间紧凑
-            card.layout().setContentsMargins(0, 0, 0, 0)
-
             card.value_changed.connect(self.script_config_changed)
             card.deleted.connect(self.script_config_deleted)
+
+        self._update_attach_margins()
 
     def on_order_changed(self, new_data_list: list) -> None:
         """拖拽排序后的回调。
@@ -531,17 +848,60 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chosen_config.reorder(new_data_list)
 
+        # 记录旧位置（从旧的 script_card_list 顺序推算）
+        old_index_of = {}
+        for old_idx, card in enumerate(self.script_card_list):
+            old_index_of[id(card.data)] = old_idx
+
         # 更新卡片列表的顺序和索引
-        new_card_list: list[ScriptSettingCard] = []
+        new_card_list: list[DraggableListItem] = []
         for data in new_data_list:
             for card in self.script_card_list:
                 if card.data is data:
                     new_card_list.append(card)
                     break
         self.script_card_list = new_card_list
+
+        # 计算哪些数据对象的位置发生了变化
+        moved_ids = set()
+        for new_idx, card in enumerate(self.script_card_list):
+            if old_index_of.get(id(card.data), new_idx) != new_idx:
+                moved_ids.add(id(card.data))
+
         for idx, card in enumerate(self.script_card_list):
-            card.config.idx = idx
-            card.update_item(card.config, idx)
+            config = card.data
+            if isinstance(config, ScriptConfig) and config.script_type == ScriptType.PYTHON:
+                should_clear = id(config) in moved_ids
+                # 挂靠目标位置变了也要清除
+                if not should_clear and config.attach_direction == AttachDirection.POST and idx > 0:
+                    should_clear = id(self.script_card_list[idx - 1].data) in moved_ids
+                if not should_clear and config.attach_direction == AttachDirection.PRE and idx < len(self.script_card_list) - 1:
+                    should_clear = id(self.script_card_list[idx + 1].data) in moved_ids
+                if should_clear:
+                    config.attach_direction = AttachDirection.NONE
+            card.data.idx = idx
+            card.update_item(card.data, idx)
+        self.chosen_config.save()
+        self._update_attach_margins()
+
+    def _update_attach_margins(self) -> None:
+        """根据 Python 脚本的挂靠方向更新卡片间距。
+
+        每张卡片默认上下各 2px 间距（共 4px 间隔）。
+        挂靠时取消对应方向的间距，使两张卡片紧贴。
+        """
+        n = len(self.script_card_list)
+        # 先用 list 记录每张卡片的 top/bottom margin
+        top = [4] * n
+        bottom = [4] * n
+
+        for i in range(n):
+            if self.chosen_config and self.chosen_config.has_next_attached(i):
+                bottom[i] = 0
+                top[i + 1] = 0
+
+        for i, card in enumerate(self.script_card_list):
+            card.layout().setContentsMargins(0, top[i], 0, bottom[i])
 
     def script_config_changed(self, config: ScriptConfig) -> None:
         """脚本配置变化"""
@@ -554,6 +914,17 @@ class ScriptSettingInterface(VerticalScrollInterface):
         """脚本配置删除"""
         if self.chosen_config is None:
             return
+
+        # 清理相邻脚本的挂靠关系，防止"漂移"到新邻居
+        script_list = self.chosen_config.script_list
+        if idx > 0:
+            prev = script_list[idx - 1]
+            if prev.script_type == ScriptType.PYTHON and prev.attach_direction == AttachDirection.PRE:
+                prev.attach_direction = AttachDirection.NONE
+        if idx < len(script_list) - 1:
+            nxt = script_list[idx + 1]
+            if nxt.script_type == ScriptType.PYTHON and nxt.attach_direction == AttachDirection.POST:
+                nxt.attach_direction = AttachDirection.NONE
 
         self.chosen_config.delete_one(idx)
         self.update_chain_display()
@@ -600,3 +971,22 @@ class ChainRenameDialog(MessageBoxBase):
         else:
             self.error_label.hide()
             return True
+
+
+class ScriptRenameDialog(MessageBoxBase):
+    def __init__(self, current_name: str, parent=None):
+        MessageBoxBase.__init__(self, parent)
+        self.yesButton.setText('确定')
+        self.cancelButton.setText('取消')
+
+        self.title_label = SubtitleLabel(text="自定义备注")
+        self.viewLayout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.name_input = LineEdit()
+        self.name_input.setPlaceholderText('留空则不显示备注')
+        self.name_input.setText(current_name)
+        self.name_input.setFixedWidth(300)
+        self.viewLayout.addWidget(self.name_input)
+
+    def get_new_name(self) -> str:
+        return self.name_input.text().strip()
