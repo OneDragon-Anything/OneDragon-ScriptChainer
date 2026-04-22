@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from one_dragon.utils.log_utils import (
     LoggerConfig,
@@ -20,22 +21,26 @@ RUNNER_LOG_CONFIG = LoggerConfig(
 def configure_runner_runtime_logging(framework_logger: logging.Logger) -> logging.Logger:
     """统一将 runner 进程内的日志切到 runner 专用文件。"""
     target_log_file = get_log_file_path(default_name=RUNNER_LOG_FILE_NAME)
+    framework_logger_config = replace(
+        RUNNER_LOG_CONFIG,
+        log_file_path=target_log_file,
+        add_console_handler=True,
+        propagate=False,
+    )
     configure_logger(
         framework_logger,
-        LoggerConfig(
-            log_file_path=target_log_file,
-            add_console_handler=True,
-            propagate=False,
-        ),
+        framework_logger_config,
     )
     runner_logger = logging.getLogger(RUNNER_LOGGER_NAME)
+    runner_logger_config = replace(
+        RUNNER_LOG_CONFIG,
+        log_file_path=target_log_file,
+        default_name=RUNNER_LOG_FILE_NAME,
+        add_console_handler=False,
+        propagate=False,
+    )
     configure_logger(
         runner_logger,
-        LoggerConfig(
-            log_file_path=target_log_file,
-            default_name=RUNNER_LOG_FILE_NAME,
-            add_console_handler=False,
-            propagate=False,
-        ),
+        runner_logger_config,
     )
     return runner_logger
