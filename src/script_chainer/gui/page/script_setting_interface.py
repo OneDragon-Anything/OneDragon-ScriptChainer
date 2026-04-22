@@ -648,6 +648,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
         )
         self.ctx: ScriptChainerContext = ctx
         self.chosen_config: ScriptChainConfig | None = None
+        self._runner_launch_in_progress: bool = False
 
     def get_content_widget(self) -> QWidget:
         content_widget = Column()
@@ -797,9 +798,11 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
     def on_run_chain_clicked(self) -> None:
         """拉起独立 runner 运行当前脚本链。"""
-        if self.chosen_config is None:
+        if self.chosen_config is None or self._runner_launch_in_progress:
             return
 
+        self._runner_launch_in_progress = True
+        self.run_chain_btn.setEnabled(False)
         chain_name = self.chosen_config.module_name
         try:
             cmd, cwd = build_runner_command(chain_name)
@@ -811,6 +814,9 @@ class ScriptSettingInterface(VerticalScrollInterface):
             _show_success(self.window(), '运行全部', f'已在终端启动脚本链 {chain_name}')
         except Exception as e:
             _show_error(self.window(), '启动失败', str(e))
+        finally:
+            self._runner_launch_in_progress = False
+            self.run_chain_btn.setEnabled(True)
 
     def update_chain_display(self) -> None:
         """更新脚本链的显示"""
