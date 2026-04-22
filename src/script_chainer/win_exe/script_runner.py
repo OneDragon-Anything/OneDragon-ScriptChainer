@@ -8,6 +8,7 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path, PurePath
 
 from colorama import Fore, Style, init
@@ -42,6 +43,14 @@ from script_chainer.utils.runtime_group_utils import (
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
+
+
+@dataclass
+class _RunMonitorState:
+    """单次脚本运行监控过程中的瞬态状态。"""
+
+    script_ever_existed: bool = False
+    game_ever_existed: bool = False
 
 
 class _TeeWriter:
@@ -204,7 +213,11 @@ def _launch_script(
 
 
 def _wait_for_subprocess_ready(
-    pm: ProcessManager, script_path: str, timeout: float = 20, expect_target: bool = False
+    pm: ProcessManager,
+    script_path: str,
+    state: _RunMonitorState,
+    timeout: float = 20,
+    expect_target: bool = False,
 ) -> bool:
     """等待子进程就绪，确保进程已经成功启动并运行了一段时间。
 
@@ -218,7 +231,6 @@ def _wait_for_subprocess_ready(
         子进程是否就绪。
     """
     start_time = time.time()
-    stable_since: float = start_time  # 进程稳定运行的起始时间
 
     while True:
         now = time.time()
@@ -231,10 +243,9 @@ def _wait_for_subprocess_ready(
             continue
 
         if pm.is_running():
-            # 进程正在运行，检查是否已稳定运行 5 秒
-            if now - stable_since >= 5:
-                print_message(f'创建脚本子进程 {script_path}')
-                return True
+            state.script_ever_existed = True
+            print_message(f'创建脚本子进程 {script_path}')
+            return True
         else:
             # 进程已退出
             if pm.process is not None:
@@ -248,7 +259,6 @@ def _wait_for_subprocess_ready(
                         return True
                 else:
                     print_message(f'子进程异常退出 (rc={rc}) {script_path}', level='ERROR')
-            stable_since = now  # 重置稳定计时
 
         if now - start_time > timeout:
             break
@@ -258,15 +268,12 @@ def _wait_for_subprocess_ready(
     return False
 
 
-def _monitor_script_done(script_config: ScriptConfig) -> None:
-    """监控脚本运行状态，等待完成条件满足。
-
-    Args:
-        script_config: 脚本配置。
-    """
+def _monitor_script_done(
+    script_config: ScriptConfig,
+    state: _RunMonitorState,
+) -> None:
+    """监控脚本运行状态，等待完成条件满足。"""
     start_time = time.time()
-    script_ever_existed: bool = False
-    game_ever_existed: bool = False
     last_status: str = ''
 
     while True:
@@ -275,11 +282,11 @@ def _monitor_script_done(script_config: ScriptConfig) -> None:
 
         # 检查游戏进程状态
         game_current_existed = is_process_existed(script_config.game_process_name)
-        game_closed = game_ever_existed and not game_current_existed
-        game_ever_existed = game_ever_existed or game_current_existed
+        game_closed = state.game_ever_existed and not game_current_existed
+        state.game_ever_existed = state.game_ever_existed or game_current_existed
 
         if script_config.game_display_name:
-            if not game_ever_existed:
+            if not state.game_ever_existed:
                 status = f'等待打开 {script_config.game_display_name}'
             elif game_current_existed:
                 status = f'正在运行 {script_config.game_display_name}'
@@ -290,13 +297,13 @@ def _monitor_script_done(script_config: ScriptConfig) -> None:
 
         # 仅在状态变化时打印
         if status != last_status:
-            print_message(status, level='PASS' if game_ever_existed else 'INFO')
+            print_message(status, level='PASS' if state.game_ever_existed else 'INFO')
             last_status = status
 
         # 检查脚本进程状态
         script_current_existed = is_process_existed(script_config.script_process_name)
-        script_closed = script_ever_existed and not script_current_existed
-        script_ever_existed = script_ever_existed or script_current_existed
+        script_closed = state.script_ever_existed and not script_current_existed
+        state.script_ever_existed = state.script_ever_existed or script_current_existed
 
         # 判断完成条件
         if script_config.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value:
@@ -315,9 +322,7 @@ def _monitor_script_done(script_config: ScriptConfig) -> None:
             print_message(f'未知的检查结束方式 {script_config.check_done}', level='ERROR')
             is_done = True
 
-        # 超时检查
-        now = time.time()
-        if now - start_time > script_config.run_timeout_seconds:
+        if time.time() - start_time > script_config.run_timeout_seconds:
             is_done = True
             print_message(f'脚本运行超时 {script_config.script_display_name}', level='ERROR')
 
@@ -389,6 +394,7 @@ def run_script(
     # 1. 启动脚本子进程
     pm = _launch_script(script_config, log_notifier=log_notifier)
     _active_pm = pm
+    state = _RunMonitorState()
 
     # 2. 等待子进程就绪
     # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
@@ -396,7 +402,7 @@ def run_script(
         bool(script_config.script_process_name)
         and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
     )
-    if not _wait_for_subprocess_ready(pm, script_path, expect_target=expect_target):
+    if not _wait_for_subprocess_ready(pm, script_path, state, expect_target=expect_target):
         print_message(f'子进程创建失败 {script_path}', level='ERROR')
         pm.kill()
         _active_pm = None
@@ -405,7 +411,7 @@ def run_script(
     print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
 
     # 3. 监控脚本运行状态
-    _monitor_script_done(script_config)
+    _monitor_script_done(script_config, state)
 
     # 4. 清理进程
     _cleanup_processes(script_config, pm)
