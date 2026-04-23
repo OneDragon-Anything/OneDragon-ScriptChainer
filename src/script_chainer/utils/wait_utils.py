@@ -9,6 +9,9 @@ def wait_with_cancel(stop_event: threading.Event, seconds: float, step: float = 
     if seconds <= 0:
         return stop_event.is_set()
 
+    if step <= 0:
+        raise ValueError("Step must be positive.")
+
     deadline = time.monotonic() + seconds
     while True:
         remaining = deadline - time.monotonic()
