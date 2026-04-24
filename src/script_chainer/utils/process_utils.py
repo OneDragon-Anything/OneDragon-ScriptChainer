@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 from contextlib import suppress
+from pathlib import Path
 
 import psutil
 
@@ -53,8 +54,9 @@ def launch_in_terminal(
     Returns:
         启动的 Popen 对象。
     """
-    if sys.platform == 'win32' and shutil.which('wt'):
-        wt_cmd = ['wt']
+    wt_path = _find_windows_terminal()
+    if wt_path is not None:
+        wt_cmd = [wt_path]
         if title:
             wt_cmd.extend(['--title', title])
         if cwd:
@@ -66,3 +68,23 @@ def launch_in_terminal(
     # 回退：创建新控制台窗口
     flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
     return subprocess.Popen(command, cwd=cwd, creationflags=flags)
+
+
+def _find_windows_terminal() -> str | None:
+    """查找 Windows Terminal 可执行文件。"""
+    if sys.platform != 'win32':
+        return None
+
+    candidates = [
+        shutil.which('wt'),
+        shutil.which('wt.exe'),
+    ]
+
+    local_appdata = Path.home() / 'AppData' / 'Local' / 'Microsoft' / 'WindowsApps' / 'wt.exe'
+    candidates.append(str(local_appdata))
+
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+
+    return None
