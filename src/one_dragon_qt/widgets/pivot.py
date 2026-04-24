@@ -34,7 +34,7 @@ class PhosPivot(Pivot):
 
         OdQtStyleSheet.PIVOT.apply(self)
 
-        self.hBoxLayout.setSpacing(30)  # 设置统一间距，替代手动添加spacer
+        self.hBoxLayout.setSpacing(20)  # 设置统一间距，替代手动添加spacer
         self.hBoxLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hBoxLayout.setContentsMargins(0, 0, 0, 0)
         self.hBoxLayout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetMinimumSize)
@@ -49,7 +49,10 @@ class PhosPivot(Pivot):
         item = PhosPivotItem(text, self)
         if icon:
             item.setIcon(icon)
-        item.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+        font = QFont("Microsoft YaHei", 12)
+        font.setWeight(QFont.Weight.Bold)
+        font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
+        item.setFont(font)
         self.insertWidget(index, routeKey, item, onClick)
         return item
 
@@ -100,9 +103,10 @@ class PhosPivotItem(PivotItem):
 class CustomListItemDelegate(ListItemDelegate):
     def __init__(self, parent: QListView):
         super().__init__(parent)
+        self._styled_delegate = QStyledItemDelegate(self)
 
     def paint(self, painter, option, index):
-        QStyledItemDelegate(self).paint(painter, option, index)
+        self._styled_delegate.paint(painter, option, index)
 
 
 class PivotNavigatorContainer(QWidget):
