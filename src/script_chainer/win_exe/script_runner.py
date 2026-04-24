@@ -45,6 +45,10 @@ from script_chainer.utils.runtime_group_utils import (
 _active_pm: ProcessManager | None = None
 
 
+class _NoLogTimeoutError(Exception):
+    """脚本长时间无日志输出时抛出，触发外层重试。"""
+
+
 @dataclass
 class _RunMonitorState:
     """单次脚本运行监控过程中的瞬态状态。"""
@@ -134,12 +138,14 @@ def _run_group_script(
 def _make_stdout_callback(
     display_name: str,
     log_notifier: LogNotifier | None = None,
+    last_log_time: list[float] | None = None,
 ) -> Callable[[str], None]:
     """创建 stdout 回调，为每行输出添加前缀。
 
     Args:
         display_name: 显示名称。
         log_notifier: 可选的日志通知器，用于定时推送日志。
+        last_log_time: 可选的单元素列表，用于记录最后一次收到日志的时间戳（线程安全写入）。
     """
     prefix = f'{Style.DIM}[{display_name}]{Style.RESET_ALL}'
 
@@ -148,6 +154,8 @@ def _make_stdout_callback(
         log.info('[脚本] %s', line)
         if log_notifier is not None:
             log_notifier.add(line)
+        if last_log_time is not None:
+            last_log_time[0] = time.time()
 
     return _on_stdout
 
@@ -155,6 +163,7 @@ def _make_stdout_callback(
 def _launch_script(
     script_config: ScriptConfig,
     log_notifier: LogNotifier | None = None,
+    last_log_time: list[float] | None = None,
 ) -> ProcessManager:
     """启动脚本子进程并返回 ProcessManager。
 
@@ -166,6 +175,7 @@ def _launch_script(
     Args:
         script_config: 脚本配置。
         log_notifier: 可选的日志通知器，用于定时推送日志。
+        last_log_time: 可选的单元素列表，用于记录最后一次收到日志的时间戳。
 
     Returns:
         已初始化的 ProcessManager。
@@ -193,6 +203,7 @@ def _launch_script(
             stdout_callback=_make_stdout_callback(
                 display_name,
                 log_notifier=log_notifier,
+                last_log_time=last_log_time,
             ),
         )
     except LauncherExitError as e:
@@ -267,14 +278,24 @@ def _wait_for_subprocess_ready(
 
     return False
 
-
 def _monitor_script_done(
     script_config: ScriptConfig,
     state: _RunMonitorState,
+    last_log_time: list[float] | None = None,
 ) -> None:
-    """监控脚本运行状态，等待完成条件满足。"""
+    """监控脚本运行状态，等待完成条件满足。
+
+    Args:
+        script_config: 脚本配置。
+        state: 运行监控状态（跨 _wait_for_subprocess_ready 持久化的进程存在标志）。
+        last_log_time: 可选的单元素列表，记录最后一次收到日志的时间戳。
+            当 script_config.no_log_timeout_seconds > 0 时启用静默超时检测，
+            超时后抛出 _NoLogTimeoutError。
+    """
     start_time = time.time()
     last_status: str = ''
+
+    no_log_timeout = script_config.no_log_timeout_seconds
 
     while True:
         is_done: bool = False
@@ -322,12 +343,27 @@ def _monitor_script_done(
             print_message(f'未知的检查结束方式 {script_config.check_done}', level='ERROR')
             is_done = True
 
-        if time.time() - start_time > script_config.run_timeout_seconds:
+        now = time.time()
+
+        # 总运行超时检查
+        if now - start_time > script_config.run_timeout_seconds:
             is_done = True
             print_message(f'脚本运行超时 {script_config.script_display_name}', level='ERROR')
 
         if is_done:
             break
+
+        # 静默超时检查（无日志输出超时，触发重启）
+        if (
+            no_log_timeout > 0
+            and last_log_time is not None
+            and now - last_log_time[0] > no_log_timeout
+        ):
+            print_message(
+                f'脚本超过 {no_log_timeout} 秒无日志输出，判定为未响应 {script_config.script_display_name}',
+                level='ERROR',
+            )
+            raise _NoLogTimeoutError()
 
         time.sleep(1)
 
@@ -375,8 +411,13 @@ def run_script(
         1. 校验配置。
         2. 启动子进程（使用 ProcessManager）。
         3. 等待子进程就绪。
-        4. 监控运行状态。
+        4. 监控运行状态（若配置了静默超时，无日志输出超时后终止并重启）。
         5. 清理进程。
+
+    静默超时重启逻辑:
+        当 script_config.no_log_timeout_seconds > 0 时，若脚本在指定时间内没有任何
+        日志输出，则认为游戏/脚本未响应，会终止当前进程并重新启动，最多重试
+        script_config.no_log_max_retries 次。
 
     Args:
         script_config: 脚本配置。
@@ -390,32 +431,61 @@ def run_script(
         return
 
     script_path = script_config.script_path
+    no_log_timeout = script_config.no_log_timeout_seconds
+    max_retries = script_config.no_log_max_retries if no_log_timeout > 0 else 0
 
-    # 1. 启动脚本子进程
-    pm = _launch_script(script_config, log_notifier=log_notifier)
-    _active_pm = pm
-    state = _RunMonitorState()
+    # last_log_time[0] 记录最近一次收到子进程输出的时间（仅外部 EXE 脚本有效）
+    last_log_time: list[float] | None = [time.time()] if no_log_timeout > 0 else None
 
-    # 2. 等待子进程就绪
-    # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
-    expect_target = (
-        bool(script_config.script_process_name)
-        and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
-    )
-    if not _wait_for_subprocess_ready(pm, script_path, state, expect_target=expect_target):
-        print_message(f'子进程创建失败 {script_path}', level='ERROR')
-        pm.kill()
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            print_message(
+                f'第 {attempt}/{max_retries} 次重启脚本 {script_config.script_display_name}',
+                level='INFO',
+            )
+            # 重置日志时间戳，避免残留旧时间立即再次触发
+            if last_log_time is not None:
+                last_log_time[0] = time.time()
+
+        # 1. 启动脚本子进程
+        pm = _launch_script(script_config, log_notifier=log_notifier, last_log_time=last_log_time)
+        _active_pm = pm
+        state = _RunMonitorState()
+
+        # 2. 等待子进程就绪
+        # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
+        expect_target = (
+            bool(script_config.script_process_name)
+            and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
+        )
+        if not _wait_for_subprocess_ready(pm, script_path, state, expect_target=expect_target):
+            print_message(f'子进程创建失败 {script_path}', level='ERROR')
+            pm.kill()
+            _active_pm = None
+            return
+
+        print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
+
+        # 3. 监控脚本运行状态
+        try:
+            _monitor_script_done(script_config, state, last_log_time=last_log_time)
+        except _NoLogTimeoutError:
+            # 静默超时：终止当前进程，进入下一轮重试
+            _cleanup_processes(script_config, pm)
+            _active_pm = None
+            if attempt < max_retries:
+                continue
+            else:
+                print_message(
+                    f'已达最大重试次数 ({max_retries})，放弃重启 {script_config.script_display_name}',
+                    level='ERROR',
+                )
+                return
+
+        # 4. 清理进程（正常退出路径）
+        _cleanup_processes(script_config, pm)
         _active_pm = None
         return
-
-    print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
-
-    # 3. 监控脚本运行状态
-    _monitor_script_done(script_config, state)
-
-    # 4. 清理进程
-    _cleanup_processes(script_config, pm)
-    _active_pm = None
 
 
 def _run_python_script(

@@ -17,6 +17,7 @@ from qfluentwidgets import (
     PrimaryDropDownPushButton,
     PushButton,
     RoundMenu,
+    SpinBox,
     SubtitleLabel,
     SwitchButton,
     TransparentToolButton,
@@ -188,6 +189,38 @@ class ScriptEditDialog(MessageBoxBase):
         )
         self.viewLayout.addWidget(self.notify_log_opt)
 
+        # ── 静默超时重启 ──
+        self.no_log_timeout_input = SpinBox()
+        self.no_log_timeout_input.setRange(30, 86400)
+        self.no_log_timeout_input.setSingleStep(30)
+        self.no_log_timeout_input.setFixedWidth(140)
+
+        self.no_log_timeout_switch = SwitchButton()
+        self.no_log_timeout_switch.setOnText('')
+        self.no_log_timeout_switch.setOffText('')
+        self.no_log_timeout_switch.checkedChanged.connect(self._on_no_log_timeout_toggled)
+
+        self.no_log_timeout_opt = MultiPushSettingCard(
+            icon=FluentIcon.SYNC,
+            title='无日志超时重启（秒）',
+            content='超过设定秒数无日志输出时，判定为未响应并重新执行',
+            btn_list=[self.no_log_timeout_input, self.no_log_timeout_switch],
+        )
+        self.viewLayout.addWidget(self.no_log_timeout_opt)
+
+        self.no_log_max_retries_input = SpinBox()
+        self.no_log_max_retries_input.setRange(1, 99)
+        self.no_log_max_retries_input.setSingleStep(1)
+        self.no_log_max_retries_input.setFixedWidth(140)
+
+        self.no_log_max_retries_opt = MultiPushSettingCard(
+            icon=FluentIcon.SYNC,
+            title='最大重启次数',
+            content='无日志超时时最多重启的次数',
+            btn_list=[self.no_log_max_retries_input],
+        )
+        self.viewLayout.addWidget(self.no_log_max_retries_opt)
+
         self.init_by_config(config)
 
     def init_by_config(self, config: ScriptConfig):
@@ -216,9 +249,27 @@ class ScriptEditDialog(MessageBoxBase):
         self.notify_log_interval_input.blockSignals(False)
         self.notify_log_interval_input.setEnabled(notify_log_enabled)
 
+        no_log_enabled = config.no_log_timeout_seconds > 0
+        self.no_log_timeout_switch.blockSignals(True)
+        self.no_log_timeout_switch.setChecked(no_log_enabled)
+        self.no_log_timeout_switch.blockSignals(False)
+        self.no_log_timeout_input.blockSignals(True)
+        self.no_log_timeout_input.setValue(config.no_log_timeout_seconds if no_log_enabled else 300)
+        self.no_log_timeout_input.blockSignals(False)
+        self.no_log_timeout_input.setEnabled(no_log_enabled)
+        self.no_log_max_retries_input.blockSignals(True)
+        self.no_log_max_retries_input.setValue(max(1, config.no_log_max_retries))
+        self.no_log_max_retries_input.blockSignals(False)
+        self.no_log_max_retries_input.setEnabled(no_log_enabled)
+
     def _on_notify_log_toggled(self, checked: bool) -> None:
         """日志推送开关切换时启用/禁用间隔输入框"""
         self.notify_log_interval_input.setEnabled(checked)
+
+    def _on_no_log_timeout_toggled(self, checked: bool) -> None:
+        """静默超时重启开关切换时启用/禁用相关输入框"""
+        self.no_log_timeout_input.setEnabled(checked)
+        self.no_log_max_retries_input.setEnabled(checked)
 
     @staticmethod
     def _set_editable_combo_value(card: EditableComboBoxSettingCard, value: str) -> None:
@@ -280,6 +331,12 @@ class ScriptEditDialog(MessageBoxBase):
             config.notify_log_interval = max(30, int(minutes * 60))
         else:
             config.notify_log_interval = 0
+
+        if self.no_log_timeout_switch.isChecked():
+            config.no_log_timeout_seconds = max(30, self.no_log_timeout_input.value())
+        else:
+            config.no_log_timeout_seconds = 0
+        config.no_log_max_retries = self.no_log_max_retries_input.value()
 
         return config
 
