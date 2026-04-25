@@ -14,8 +14,6 @@ from pathlib import Path, PurePath
 from colorama import Fore, Style, init
 
 from one_dragon.utils import cmd_utils
-from one_dragon.utils.log_utils import get_or_create_logger
-from one_dragon.utils.log_utils import log as framework_log
 from script_chainer.config.script_config import (
     CheckDoneMethods,
     ScriptChainConfig,
@@ -31,10 +29,9 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
-from script_chainer.utils.runner_log_utils import (
-    RUNNER_LOG_CONFIG,
-    RUNNER_LOGGER_NAME,
+from script_chainer.utils.runner_logging import (
     configure_runner_runtime_logging,
+    log,
 )
 from script_chainer.utils.runtime_group_utils import (
     build_runtime_selection,
@@ -74,9 +71,6 @@ class _TeeWriter:
         return getattr(self._original, name)
 
 
-log = get_or_create_logger(RUNNER_LOGGER_NAME, RUNNER_LOG_CONFIG)
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
@@ -88,8 +82,7 @@ def parse_args():
 
 def _configure_runtime_logging() -> None:
     """为 runner 进程显式配置日志输出位置。"""
-    global log
-    log = configure_runner_runtime_logging(framework_log)
+    configure_runner_runtime_logging()
 
 
 def print_message(message: str, level="INFO"):
