@@ -15,8 +15,6 @@ from pathlib import Path, PurePath
 from colorama import Fore, Style, init
 
 from one_dragon.utils import cmd_utils
-from one_dragon.utils.log_utils import get_or_create_logger
-from one_dragon.utils.log_utils import log as framework_log
 from script_chainer.config.script_config import (
     CheckDoneMethods,
     ScriptChainConfig,
@@ -33,16 +31,15 @@ from script_chainer.services.process_manager import (
     is_process_existed,
 )
 from script_chainer.utils.console_close_utils import force_exit_on_console_close
-from script_chainer.utils.runner_log_utils import (
-    RUNNER_LOG_CONFIG,
-    RUNNER_LOGGER_NAME,
-    configure_runner_runtime_logging,
-)
 from script_chainer.utils.runtime_group_utils import (
     build_runtime_selection,
     resolve_runtime_groups,
 )
 from script_chainer.utils.wait_utils import wait_with_cancel
+from script_chainer.win_exe.runner_logging import (
+    configure_runner_runtime_logging,
+    log,
+)
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
 _active_pm: ProcessManager | None = None
@@ -112,9 +109,6 @@ class _RunnerExitController:
 _exit_controller = _RunnerExitController()
 
 
-log = get_or_create_logger(RUNNER_LOGGER_NAME, RUNNER_LOG_CONFIG)
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
@@ -122,12 +116,6 @@ def parse_args():
     parser.add_argument('--debug-index', type=int, default=None, help='仅调试指定下标脚本，并按挂靠关系一并编排（禁用项仍会跳过）')
 
     return parser.parse_args()
-
-
-def _configure_runtime_logging() -> None:
-    """为 runner 进程显式配置日志输出位置。"""
-    global log
-    log = configure_runner_runtime_logging(framework_log)
 
 
 def print_message(message: str, level="INFO"):
@@ -501,6 +489,7 @@ def _run_python_script(
     try:
         sys.argv = [script_path]
         sys.path.insert(0, str(script_dir))
+        os.chdir(script_dir)
 
         if log_notifier is not None:
             sys.stdout = _TeeWriter(old_stdout, log_notifier)
@@ -557,7 +546,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
             并按编排/挂靠关系一并纳入与其关联的脚本。
     """
     _exit_controller.reset()
-    _configure_runtime_logging()
+    configure_runner_runtime_logging()
 
     # 注册普通信号处理，控制台关闭强退仅在 Python exec 窗口内临时启用
     _exit_controller.install_handlers(_cleanup_active_pm)
