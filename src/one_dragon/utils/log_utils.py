@@ -79,6 +79,15 @@ def configure_project_runtime_logging(
     默认的框架日志仍然写入 `log.txt`；只有项目主动调用本函数时，
     才会把项目 logger 和框架 logger 分别切到指定文件。
     """
+    if project_logger_name == framework_logger_name:
+        raise ValueError(
+            'configure_project_runtime_logging 需要不同的 '
+            'project_logger_name 和 framework_logger_name；否则 '
+            '_configure_runtime_logger 会对同一个 logger 调用两次 '
+            '_close_managed_handlers，导致 ProjectRuntimeLoggingContext '
+            '静默丢失其中一套 handler 配置。'
+        )
+
     project_logger = logging.getLogger(project_logger_name)
     framework_logger = logging.getLogger(framework_logger_name)
 
