@@ -29,13 +29,13 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
-from script_chainer.utils.runner_logging import (
-    configure_runner_runtime_logging,
-    log,
-)
 from script_chainer.utils.runtime_group_utils import (
     build_runtime_selection,
     resolve_runtime_groups,
+)
+from script_chainer.win_exe.runner_logging import (
+    configure_runner_runtime_logging,
+    log,
 )
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
