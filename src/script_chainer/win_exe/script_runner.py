@@ -80,11 +80,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def _configure_runtime_logging() -> None:
-    """为 runner 进程显式配置日志输出位置。"""
-    configure_runner_runtime_logging()
-
-
 def print_message(message: str, level="INFO"):
     # 打印消息，带有时间戳和日志级别
     time.sleep(0.1)
@@ -515,7 +510,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
         debug_index: 调试脚本下标，None 表示运行整个脚本链，非负整数表示仅调试该下标脚本，
             并按编排/挂靠关系一并纳入与其关联的脚本。
     """
-    _configure_runtime_logging()
+    configure_runner_runtime_logging()
 
     # 注册信号处理，确保点击控制台 X 或 Ctrl+C 时能清理子进程
     signal.signal(signal.SIGINT, _on_exit_signal)
