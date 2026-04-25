@@ -14,8 +14,6 @@ from pathlib import Path, PurePath
 from colorama import Fore, Style, init
 
 from one_dragon.utils import cmd_utils
-from one_dragon.utils.log_utils import get_or_create_logger
-from one_dragon.utils.log_utils import log as framework_log
 from script_chainer.config.script_config import (
     CheckDoneMethods,
     ScriptChainConfig,
@@ -31,14 +29,13 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
-from script_chainer.utils.runner_log_utils import (
-    RUNNER_LOG_CONFIG,
-    RUNNER_LOGGER_NAME,
-    configure_runner_runtime_logging,
-)
 from script_chainer.utils.runtime_group_utils import (
     build_runtime_selection,
     resolve_runtime_groups,
+)
+from script_chainer.win_exe.runner_logging import (
+    configure_runner_runtime_logging,
+    log,
 )
 
 # 当前活跃的 ProcessManager，用于信号处理时清理
@@ -74,9 +71,6 @@ class _TeeWriter:
         return getattr(self._original, name)
 
 
-log = get_or_create_logger(RUNNER_LOGGER_NAME, RUNNER_LOG_CONFIG)
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
@@ -84,12 +78,6 @@ def parse_args():
     parser.add_argument('--debug-index', type=int, default=None, help='仅调试指定下标脚本，并按挂靠关系一并编排（禁用项仍会跳过）')
 
     return parser.parse_args()
-
-
-def _configure_runtime_logging() -> None:
-    """为 runner 进程显式配置日志输出位置。"""
-    global log
-    log = configure_runner_runtime_logging(framework_log)
 
 
 def print_message(message: str, level="INFO"):
@@ -522,7 +510,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
         debug_index: 调试脚本下标，None 表示运行整个脚本链，非负整数表示仅调试该下标脚本，
             并按编排/挂靠关系一并纳入与其关联的脚本。
     """
-    _configure_runtime_logging()
+    configure_runner_runtime_logging()
 
     # 注册信号处理，确保点击控制台 X 或 Ctrl+C 时能清理子进程
     signal.signal(signal.SIGINT, _on_exit_signal)
