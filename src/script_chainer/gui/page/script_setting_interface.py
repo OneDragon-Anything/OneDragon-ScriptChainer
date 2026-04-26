@@ -697,7 +697,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
         content_widget.add_widget(self.chain_toolbar)
 
         self.script_list_widget = DraggableList()
-        self.script_list_widget.order_changed.connect(self.on_order_changed)
+        self.script_list_widget.order_changed_with_moved.connect(self.on_order_changed)
         self.script_card_list: list[DraggableListItem] = []
         content_widget.add_widget(self.script_list_widget)
 
@@ -859,21 +859,25 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self._update_attach_margins()
 
-    def on_order_changed(self, new_data_list: list) -> None:
+    def on_order_changed(self, new_data_list: list, moved_data: object) -> None:
         """拖拽排序后的回调。
 
         Args:
             new_data_list: 新顺序的数据列表。
+            moved_data: 被拖动的数据。
         """
         if self.chosen_config is None:
             return
 
-        self.chosen_config.reorder(new_data_list)
-
-        # 记录旧位置（从旧的 script_card_list 顺序推算）
-        old_index_of = {}
-        for old_idx, card in enumerate(self.script_card_list):
-            old_index_of[id(card.data)] = old_idx
+        old_target_of = {
+            id(config): target
+            for config, target in zip(
+                self.chosen_config.script_list,
+                self.chosen_config.compute_attach_targets(),
+                strict=False,
+            )
+        }
+        direct_changed_ids = {id(moved_data)}
 
         # 更新卡片列表的顺序和索引
         new_card_list: list[DraggableListItem] = []
@@ -884,21 +888,26 @@ class ScriptSettingInterface(VerticalScrollInterface):
                     break
         self.script_card_list = new_card_list
 
-        # 计算哪些数据对象的位置发生了变化
-        moved_ids = set()
-        for new_idx, card in enumerate(self.script_card_list):
-            if old_index_of.get(id(card.data), new_idx) != new_idx:
-                moved_ids.add(id(card.data))
+        self.chosen_config.reorder(new_data_list)
+        new_target_of = {
+            id(config): target
+            for config, target in zip(
+                self.chosen_config.script_list,
+                self.chosen_config.compute_attach_targets(),
+                strict=False,
+            )
+        }
 
         for idx, card in enumerate(self.script_card_list):
             config = card.data
             if isinstance(config, ScriptConfig) and config.script_type == ScriptType.PYTHON:
-                should_clear = id(config) in moved_ids
-                # 挂靠目标位置变了也要清除
-                if not should_clear and config.attach_direction == AttachDirection.POST and idx > 0:
-                    should_clear = id(self.script_card_list[idx - 1].data) in moved_ids
-                if not should_clear and config.attach_direction == AttachDirection.PRE and idx < len(self.script_card_list) - 1:
-                    should_clear = id(self.script_card_list[idx + 1].data) in moved_ids
+                old_target = old_target_of.get(id(config))
+                new_target = new_target_of.get(id(config))
+                should_clear = (
+                    id(config) in direct_changed_ids
+                    or (old_target is not None and id(old_target) in direct_changed_ids)
+                    or old_target is not new_target
+                )
                 if should_clear:
                     config.attach_direction = AttachDirection.NONE
             card.data.idx = idx
