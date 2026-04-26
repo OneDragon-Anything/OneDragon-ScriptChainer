@@ -507,6 +507,8 @@ def _run_python_script(
             lambda: _exit_controller.exit(_cleanup_active_pm, force=True)
         ):
             exec(compile(code, script_path, 'exec'), exec_globals)
+            if _exit_controller.is_shutdown_requested():
+                raise SystemExit(1)
         print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
     except SystemExit as e:
         if _exit_controller.is_shutdown_requested():
