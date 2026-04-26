@@ -161,6 +161,8 @@ def is_process_existed(process_name: str | None) -> bool:
     """
     if not process_name:
         return False
+    if sys.platform == 'win32' and not process_name.endswith('.exe'):
+        process_name = f'{process_name}.exe'
     return find_process_by_info(ProcessInfo(name=process_name)) is not None
 
 
