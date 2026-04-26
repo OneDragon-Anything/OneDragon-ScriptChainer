@@ -1,7 +1,7 @@
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import FluentIcon, NavigationItemPosition, Theme, setTheme
+from qfluentwidgets import Dialog, FluentIcon, NavigationItemPosition, Theme, setTheme
 
 from one_dragon.version import __version__
 from one_dragon_qt.services.styles_manager import OdQtStyleSheet
@@ -85,7 +85,16 @@ class AppWindow(AppWindowBase):
         )
 
     def open_help_url(self) -> None:
-        QDesktopServices.openUrl(QUrl(self.HELP_URL))
+        dialog = Dialog(
+            '打开使用说明',
+            '即将在浏览器中打开千机链使用说明，是否继续？',
+            parent=self,
+        )
+        dialog.setTitleBarVisible(False)
+        dialog.yesButton.setText('打开')
+        dialog.cancelButton.setText('取消')
+        if dialog.exec():
+            QDesktopServices.openUrl(QUrl(self.HELP_URL))
 
 
 def run_editor():
