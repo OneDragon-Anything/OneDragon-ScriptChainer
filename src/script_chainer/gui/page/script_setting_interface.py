@@ -1,7 +1,7 @@
 import os
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
@@ -24,6 +24,7 @@ from qfluentwidgets import (
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.utils.i18_utils import gt
+from one_dragon.utils.os_utils import reveal_in_file_manager
 from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.combo_box import ComboBox
 from one_dragon_qt.widgets.draggable_list import DraggableList, DraggableListItem
@@ -549,6 +550,12 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             return os.path.basename(self.config.script_path)
         return '(空)'
 
+    def _is_external_script(self) -> bool:
+        return bool(
+            self.config.script_path
+            and not self.chain_config._is_managed_script(self.config.script_path)
+        )
+
     def _on_attach_up(self) -> None:
         """切换向上挂靠"""
         if self.config.attach_direction == AttachDirection.POST:
@@ -595,20 +602,16 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             _show_error(self.window(), '启动失败', str(e))
 
     def on_edit_clicked(self) -> None:
-        """编辑 Python 脚本。外部脚本直接调用外部编辑器，内部脚本弹窗编辑。"""
+        """编辑 Python 脚本。外部脚本定位到文件，内部脚本弹窗编辑。"""
         path = self.config.script_path
-        if path and not self.chain_config._is_managed_script(path):
-            if os.name == 'nt':
-                try:
-                    os.startfile(path, 'edit')
-                except (AttributeError, OSError) as e:
-                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
-            else:
-                try:
-                    if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
-                        raise OSError('系统默认编辑器未能打开该文件')
-                except OSError as e:
-                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
+        if self._is_external_script():
+            if not os.path.exists(path):
+                _show_warning(self.window(), '无法定位', '外部脚本文件不存在')
+                return
+            try:
+                reveal_in_file_manager(path)
+            except OSError as e:
+                _show_error(self.window(), '打开失败', f'无法在资源管理器中定位外部脚本：{e}')
             return
         code = self.chain_config.get_python_script_content(self.config.idx)
         dialog = PythonCodeEditorDialog(
@@ -627,11 +630,10 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         self.enable_switch.setChecked(self.config.enabled)
         self._post_tag.setVisible(self.config.attach_direction == AttachDirection.POST)
         self._pre_tag.setVisible(self.config.attach_direction == AttachDirection.PRE)
-        is_external = bool(
-            self.config.script_path
-            and not self.chain_config._is_managed_script(self.config.script_path)
-        )
+        is_external = self._is_external_script()
         self._external_tag.setVisible(is_external)
+        self.edit_btn.setIcon(FluentIcon.FOLDER.icon() if is_external else FluentIcon.EDIT.icon())
+        self.edit_btn.setToolTip('定位文件' if is_external else '编辑')
 
 
 class ScriptSettingInterface(VerticalScrollInterface):

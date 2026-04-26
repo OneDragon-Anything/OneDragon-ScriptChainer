@@ -1,5 +1,6 @@
 import datetime
 import os
+import subprocess
 import sys
 from functools import lru_cache
 
@@ -97,6 +98,26 @@ def now_timestamp_str() -> str:
     """
     current_time = datetime.datetime.now()
     return current_time.strftime("%Y%m%d%H%M%S")
+
+
+def reveal_in_file_manager(path: str) -> None:
+    """
+    在系统文件管理器中定位文件。
+    Windows 下使用资源管理器选中文件；其他系统打开文件所在目录。
+    :param path: 文件或目录路径
+    :return:
+    """
+    target_path = os.path.abspath(path)
+    if os.name == 'nt':
+        if os.path.isdir(target_path):
+            subprocess.Popen(['explorer.exe', target_path])
+        else:
+            subprocess.Popen(['explorer.exe', f'/select,{target_path}'])
+    elif sys.platform == 'darwin':
+        subprocess.Popen(['open', '-R', target_path])
+    else:
+        directory = target_path if os.path.isdir(target_path) else os.path.dirname(target_path)
+        subprocess.Popen(['xdg-open', directory or '.'])
 
 
 def get_dt(utc_offset: int | None = None) -> str:
