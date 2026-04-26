@@ -657,8 +657,6 @@ class ScriptSettingInterface(VerticalScrollInterface):
         self.script_card_list: list[DraggableListItem] = []
         content_widget.add_widget(self.script_list_widget)
 
-        content_widget.add_stretch(1)
-
         return content_widget
 
     def get_fixed_top_widget(self) -> QWidget | None:
