@@ -27,7 +27,7 @@
     初始显示不会偏移，只有拖拽时才可能偏移。
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -372,9 +372,6 @@ class DraggableList(QWidget):
     # 顺序变化信号，参数为新的数据列表
     order_changed = Signal(list)
 
-    # 顺序变化信号，参数为新的数据列表和被移动的数据
-    order_changed_with_moved = Signal(list, object)
-
     def __init__(self, parent=None, enable_opacity_effect: bool = True):
         """
         初始化可拖动列表
@@ -537,7 +534,7 @@ class DraggableList(QWidget):
         for index, item in enumerate(self._items):
             item.index = index
 
-    def _find_scroll_area_parent(self) -> QScrollArea | None:
+    def _find_scroll_area_parent(self) -> Optional[QScrollArea]:
         """
         查找父级滚动区域
 
@@ -836,9 +833,7 @@ class DraggableList(QWidget):
         self._update_indices()
 
         # 发出顺序变化信号
-        data_list = self.get_data_list()
-        self.order_changed.emit(data_list)
-        self.order_changed_with_moved.emit(data_list, item.data)
+        self.order_changed.emit(self.get_data_list())
 
     def _rebuild_layout(self) -> None:
         """重新构建布局"""

@@ -699,7 +699,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
         content_widget.add_widget(self.chain_toolbar)
 
         self.script_list_widget = DraggableList()
-        self.script_list_widget.order_changed_with_moved.connect(self.on_order_changed)
+        self.script_list_widget.order_changed.connect(self.on_order_changed)
         self.script_card_list: list[DraggableListItem] = []
         content_widget.add_widget(self.script_list_widget)
 
@@ -861,12 +861,11 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self._update_attach_margins()
 
-    def on_order_changed(self, new_data_list: list, moved_data: object) -> None:
+    def on_order_changed(self, new_data_list: list) -> None:
         """拖拽排序后的回调。
 
         Args:
             new_data_list: 新顺序的数据列表。
-            moved_data: 被拖动的数据。
         """
         if self.chosen_config is None:
             return
@@ -879,7 +878,6 @@ class ScriptSettingInterface(VerticalScrollInterface):
                 strict=False,
             )
         }
-        direct_changed_ids = {id(moved_data)}
 
         # 更新卡片列表的顺序和索引
         new_card_list: list[DraggableListItem] = []
@@ -905,12 +903,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
             if isinstance(config, ScriptConfig) and config.script_type == ScriptType.PYTHON:
                 old_target = old_target_of.get(id(config))
                 new_target = new_target_of.get(id(config))
-                should_clear = (
-                    id(config) in direct_changed_ids
-                    or (old_target is not None and id(old_target) in direct_changed_ids)
-                    or old_target is not new_target
-                )
-                if should_clear:
+                if old_target is not new_target:
                     config.attach_direction = AttachDirection.NONE
             card.data.idx = idx
             card.update_item(card.data, idx)
