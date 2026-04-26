@@ -5,6 +5,7 @@ import os
 import shlex
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -29,10 +30,12 @@ from script_chainer.services.process_manager import (
     find_process_by_info,
     is_process_existed,
 )
+from script_chainer.utils.console_close_utils import force_exit_on_console_close
 from script_chainer.utils.runtime_group_utils import (
     build_runtime_selection,
     resolve_runtime_groups,
 )
+from script_chainer.utils.wait_utils import wait_with_cancel
 from script_chainer.win_exe.runner_logging import (
     configure_runner_runtime_logging,
     log,
@@ -71,6 +74,41 @@ class _TeeWriter:
         return getattr(self._original, name)
 
 
+class _RunnerExitController:
+    """管理 runner 的退出状态和普通信号处理。"""
+
+    def __init__(self) -> None:
+        self._shutdown_event = threading.Event()
+
+    def wait(self, seconds: float) -> bool:
+        return wait_with_cancel(self._shutdown_event, seconds)
+
+    def reset(self) -> None:
+        self._shutdown_event.clear()
+
+    def is_shutdown_requested(self) -> bool:
+        return self._shutdown_event.is_set()
+
+    def exit(self, cleanup: Callable[[], None], force: bool = False) -> None:
+        self._shutdown_event.set()
+        cleanup()
+        if force:
+            os._exit(1)
+        sys.exit(1)
+
+    def install_handlers(self, cleanup: Callable[[], None]) -> None:
+        def _on_exit_signal(signum, frame):
+            self.exit(cleanup)
+
+        signal.signal(signal.SIGINT, _on_exit_signal)
+        signal.signal(signal.SIGTERM, _on_exit_signal)
+        if sys.platform == 'win32':
+            signal.signal(signal.SIGBREAK, _on_exit_signal)
+
+
+_exit_controller = _RunnerExitController()
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--chain', type=str, default='01', help='脚本链名称')
@@ -82,7 +120,7 @@ def parse_args():
 
 def print_message(message: str, level="INFO"):
     # 打印消息，带有时间戳和日志级别
-    time.sleep(0.1)
+    _exit_controller.wait(0.1)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
     colors = {"INFO": Fore.CYAN, "ERROR": Fore.YELLOW + Style.BRIGHT, "PASS": Fore.GREEN}
     color = colors.get(level, Fore.WHITE)
@@ -227,7 +265,8 @@ def _wait_for_subprocess_ready(
             # 进程完全不存在
             if now - start_time > timeout:
                 break
-            time.sleep(1)
+            if _exit_controller.wait(1):
+                break
             continue
 
         if pm.is_running():
@@ -251,7 +290,8 @@ def _wait_for_subprocess_ready(
         if now - start_time > timeout:
             break
 
-        time.sleep(1)
+        if _exit_controller.wait(1):
+            break
 
     return False
 
@@ -317,7 +357,8 @@ def _monitor_script_done(
         if is_done:
             break
 
-        time.sleep(1)
+        if _exit_controller.wait(1):
+            break
 
 
 def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
@@ -383,27 +424,27 @@ def run_script(
     pm = _launch_script(script_config, log_notifier=log_notifier)
     _active_pm = pm
     state = _RunMonitorState()
+    try:
+        # 2. 等待子进程就绪
+        # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
+        expect_target = (
+            bool(script_config.script_process_name)
+            and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
+        )
+        if not _wait_for_subprocess_ready(pm, script_path, state, expect_target=expect_target):
+            print_message(f'子进程创建失败 {script_path}', level='ERROR')
+            pm.kill()
+            return
 
-    # 2. 等待子进程就绪
-    # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
-    expect_target = (
-        bool(script_config.script_process_name)
-        and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
-    )
-    if not _wait_for_subprocess_ready(pm, script_path, state, expect_target=expect_target):
-        print_message(f'子进程创建失败 {script_path}', level='ERROR')
-        pm.kill()
+        print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
+
+        # 3. 监控脚本运行状态
+        _monitor_script_done(script_config, state)
+
+        # 4. 清理进程
+        _cleanup_processes(script_config, pm)
+    finally:
         _active_pm = None
-        return
-
-    print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
-
-    # 3. 监控脚本运行状态
-    _monitor_script_done(script_config, state)
-
-    # 4. 清理进程
-    _cleanup_processes(script_config, pm)
-    _active_pm = None
 
 
 def _run_python_script(
@@ -460,9 +501,18 @@ def _run_python_script(
             '__spec__': None,
             '__builtins__': __builtins__,
         }
-        exec(compile(code, script_path, 'exec'), exec_globals)
+        # 只有当前进程内 exec 用户 Python 脚本时，控制台关闭才需要额外强退兜底。
+        # Ctrl+C / Ctrl+Break 仍走 install_handlers() 注册的普通 signal 软退出链。
+        with force_exit_on_console_close(
+            lambda: _exit_controller.exit(_cleanup_active_pm, force=True)
+        ):
+            exec(compile(code, script_path, 'exec'), exec_globals)
+            if _exit_controller.is_shutdown_requested():
+                raise SystemExit(1)
         print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
     except SystemExit as e:
+        if _exit_controller.is_shutdown_requested():
+            raise
         if e.code in (0, None):
             print_message(f'Python 脚本执行完成 {display_name}', level='PASS')
         else:
@@ -488,19 +538,6 @@ def _cleanup_active_pm():
         _active_pm = None
 
 
-def _on_exit_signal(signum, frame):
-    """控制台关闭/Ctrl+C 时清理子进程并退出。
-
-    SIGINT/SIGTERM: 通过 sys.exit 触发正常 Python 退出（atexit/finally 可执行）。
-    SIGBREAK (Windows 控制台关闭): 通过 os._exit 快速退出，
-        子进程清理由 Job Object (KILL_ON_JOB_CLOSE) 自动保证。
-    """
-    if sys.platform == 'win32' and signum == signal.SIGBREAK:
-        os._exit(1)
-    _cleanup_active_pm()
-    sys.exit(1)
-
-
 def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int | None = None) -> None:
     """运行指定的脚本链。
 
@@ -510,13 +547,11 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
         debug_index: 调试脚本下标，None 表示运行整个脚本链，非负整数表示仅调试该下标脚本，
             并按编排/挂靠关系一并纳入与其关联的脚本。
     """
+    _exit_controller.reset()
     configure_runner_runtime_logging()
 
-    # 注册信号处理，确保点击控制台 X 或 Ctrl+C 时能清理子进程
-    signal.signal(signal.SIGINT, _on_exit_signal)
-    signal.signal(signal.SIGTERM, _on_exit_signal)
-    if sys.platform == 'win32':
-        signal.signal(signal.SIGBREAK, _on_exit_signal)
+    # 注册普通信号处理，控制台关闭强退仅在 Python exec 窗口内临时启用
+    _exit_controller.install_handlers(_cleanup_active_pm)
     atexit.register(_cleanup_active_pm)
 
     init(autoreset=True)
@@ -588,7 +623,8 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
 
                 if group_idx < len(runtime_groups) - 1:
                     print_message('10秒后开始下一个脚本')
-                    time.sleep(10)
+                    if _exit_controller.wait(10):
+                        break
 
             print_message('已完成调试脚本' if debug_index is not None else '已完成全部脚本')
 
@@ -597,7 +633,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
             print_message('准备关机')
 
         print_message('5秒后关闭本窗口')
-        time.sleep(5)
+        _exit_controller.wait(5)
     finally:
         # 清理资源
         if ctx is not None:
