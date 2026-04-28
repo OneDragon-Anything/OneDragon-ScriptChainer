@@ -216,10 +216,15 @@ jobs:
             $message = $matches[1]
             $hash = $matches[2]
 
-            # 提取冒号前的前缀
-            if ($message -match "^([^:]+):(.*)$") {
+            # 兼容带 scope 的 Conventional Commits，例如 feat(ui): xxx / feat(ui)!: xxx
+            if ($message -match "^([A-Za-z]+)(?:\(([^)]+)\))?(?:!)?:(.*)$") {
               $prefix = $matches[1].Trim().ToLower()
-              $content = $matches[2].Trim()
+              $scope = $matches[2].Trim()
+              $content = $matches[3].Trim()
+
+              if (-not [string]::IsNullOrWhiteSpace($scope)) {
+                $content = "[$scope] $content"
+              }
 
               # 检查前缀是否在已知分类中
               if ($categories.ContainsKey($prefix)) {
