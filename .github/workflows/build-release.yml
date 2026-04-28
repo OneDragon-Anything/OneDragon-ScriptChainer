@@ -217,10 +217,10 @@ jobs:
             $hash = $matches[2]
 
             # 兼容带 scope 的 Conventional Commits，例如 feat(ui): xxx / feat(ui)!: xxx
-            if ($message -match "^([A-Za-z]+)(?:\(([^)]+)\))?(?:!)?:(.*)$") {
+            if ($message -match "^([A-Za-z]+)(?:\(([^)!]+)\))?(!)?:\s*(.*)$") {
               $prefix = $matches[1].Trim().ToLower()
               $scope = if ($null -ne $matches[2]) { $matches[2].Trim() } else { "" }
-              $content = $matches[3].Trim()
+              $content = $matches[4].Trim()
 
               if (-not [string]::IsNullOrWhiteSpace($scope)) {
                 $content = "[$scope] $content"
