@@ -223,7 +223,7 @@ jobs:
               $content = $matches[4].Trim()
 
               if (-not [string]::IsNullOrWhiteSpace($scope)) {
-                $content = "[$scope] $content"
+                $content = "$($scope): $content"
               }
 
               # 检查前缀是否在已知分类中
