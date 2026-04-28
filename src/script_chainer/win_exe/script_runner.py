@@ -566,7 +566,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
         log.error(f'初始化上下文实例失败: {e}')
 
     try:
-        if not chain_config.is_file_exists():
+        if not chain_config.is_file_exists:
             print_message(f'脚本链配置不存在 {chain_name}', "ERROR")
         else:
             attach_targets = chain_config.compute_attach_targets()

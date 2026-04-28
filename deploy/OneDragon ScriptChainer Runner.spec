@@ -5,7 +5,7 @@ a = Analysis(
     ['..\\src\\script_chainer\\win_exe\\script_runner.py'],
     pathex=[],
     binaries=[],
-    datas=[('../config/project.yml', 'config')],
+    datas=[('../config/project.yml', 'resources/config')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
