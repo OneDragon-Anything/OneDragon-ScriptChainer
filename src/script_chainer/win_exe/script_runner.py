@@ -501,7 +501,7 @@ def run_script(
                 # 静默超时：终止当前进程，进入下一轮重试
                 _cleanup_processes(script_config, pm)
                 if attempt < max_retries:
-                    break  # 跳出 try 块，由外层 for 循环进入下一轮
+                    continue  # 跳出 try 块，由外层 for 循环进入下一轮
                 else:
                     print_message(
                         f'已达最大重试次数 ({max_retries})，放弃重启 {script_config.script_display_name}',

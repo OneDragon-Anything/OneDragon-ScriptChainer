@@ -191,8 +191,8 @@ class ScriptEditDialog(MessageBoxBase):
 
         # ── 静默超时重启 ──
         self.no_log_timeout_input = SpinBox()
-        self.no_log_timeout_input.setRange(30, 86400)
-        self.no_log_timeout_input.setSingleStep(30)
+        self.no_log_timeout_input.setRange(1, 86400)
+        self.no_log_timeout_input.setSingleStep(1)
         self.no_log_timeout_input.setFixedWidth(140)
 
         self.no_log_timeout_switch = SwitchButton()
@@ -333,7 +333,7 @@ class ScriptEditDialog(MessageBoxBase):
             config.notify_log_interval = 0
 
         if self.no_log_timeout_switch.isChecked():
-            config.no_log_timeout_seconds = max(30, self.no_log_timeout_input.value())
+            config.no_log_timeout_seconds = max(1, self.no_log_timeout_input.value())
         else:
             config.no_log_timeout_seconds = 0
         config.no_log_max_retries = self.no_log_max_retries_input.value()
