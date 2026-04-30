@@ -1,7 +1,7 @@
 import os
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
@@ -9,7 +9,6 @@ from qfluentwidgets import (
     Dialog,
     DoubleSpinBox,
     FluentIcon,
-    HyperlinkCard,
     InfoBar,
     InfoBarPosition,
     LineEdit,
@@ -25,6 +24,7 @@ from qfluentwidgets import (
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.utils.i18_utils import gt
+from one_dragon.utils.os_utils import reveal_in_file_manager
 from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.combo_box import ComboBox
 from one_dragon_qt.widgets.draggable_list import DraggableList, DraggableListItem
@@ -606,6 +606,12 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             return os.path.basename(self.config.script_path)
         return '(空)'
 
+    def _is_external_script(self) -> bool:
+        return bool(
+            self.config.script_path
+            and not self.chain_config._is_managed_script(self.config.script_path)
+        )
+
     def _on_attach_up(self) -> None:
         """切换向上挂靠"""
         if self.config.attach_direction == AttachDirection.POST:
@@ -652,20 +658,16 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             _show_error(self.window(), '启动失败', str(e))
 
     def on_edit_clicked(self) -> None:
-        """编辑 Python 脚本。外部脚本直接调用外部编辑器，内部脚本弹窗编辑。"""
+        """编辑 Python 脚本。外部脚本定位到文件，内部脚本弹窗编辑。"""
         path = self.config.script_path
-        if path and not self.chain_config._is_managed_script(path):
-            if os.name == 'nt':
-                try:
-                    os.startfile(path, 'edit')
-                except (AttributeError, OSError) as e:
-                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
-            else:
-                try:
-                    if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
-                        raise OSError('系统默认编辑器未能打开该文件')
-                except OSError as e:
-                    _show_error(self.window(), '打开失败', f'无法打开外部脚本进行编辑：{e}')
+        if self._is_external_script():
+            if not os.path.exists(path):
+                _show_warning(self.window(), '无法定位', '外部脚本文件不存在')
+                return
+            try:
+                reveal_in_file_manager(path)
+            except OSError as e:
+                _show_error(self.window(), '打开失败', f'无法在资源管理器中定位外部脚本：{e}')
             return
         code = self.chain_config.get_python_script_content(self.config.idx)
         dialog = PythonCodeEditorDialog(
@@ -684,11 +686,10 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         self.enable_switch.setChecked(self.config.enabled)
         self._post_tag.setVisible(self.config.attach_direction == AttachDirection.POST)
         self._pre_tag.setVisible(self.config.attach_direction == AttachDirection.PRE)
-        is_external = bool(
-            self.config.script_path
-            and not self.chain_config._is_managed_script(self.config.script_path)
-        )
+        is_external = self._is_external_script()
         self._external_tag.setVisible(is_external)
+        self.edit_btn.setIcon(FluentIcon.FOLDER.icon() if is_external else FluentIcon.EDIT.icon())
+        self.edit_btn.setToolTip('定位文件' if is_external else '编辑')
 
 
 class ScriptSettingInterface(VerticalScrollInterface):
@@ -710,11 +711,14 @@ class ScriptSettingInterface(VerticalScrollInterface):
     def get_content_widget(self) -> QWidget:
         content_widget = Column()
 
-        self.help_opt = HyperlinkCard(icon=FluentIcon.HELP, title='使用说明', text='前往',
-                                      url='https://onedragon-anything.github.io/tools/zh/script_chainer.html')
-        self.help_opt.setContent('先看说明 再使用与提问')
-        content_widget.add_widget(self.help_opt)
+        self.script_list_widget = DraggableList()
+        self.script_list_widget.order_changed.connect(self.on_order_changed)
+        self.script_card_list: list[DraggableListItem] = []
+        content_widget.add_widget(self.script_list_widget)
 
+        return content_widget
+
+    def get_fixed_top_widget(self) -> QWidget | None:
         self.chain_combo_box = ComboBox()
         self.chain_combo_box.currentIndexChanged.connect(self.on_chain_selected)
 
@@ -739,7 +743,7 @@ class ScriptSettingInterface(VerticalScrollInterface):
 
         self.chain_toolbar = QWidget()
         toolbar_layout = QHBoxLayout(self.chain_toolbar)
-        toolbar_layout.setContentsMargins(0, 16, 16, 8)
+        toolbar_layout.setContentsMargins(8, 8, 16, 8)
         toolbar_layout.setSpacing(4)
         toolbar_layout.addWidget(SubtitleLabel('脚本链'))
         toolbar_layout.addSpacing(8)
@@ -751,16 +755,8 @@ class ScriptSettingInterface(VerticalScrollInterface):
         toolbar_layout.addWidget(self.run_chain_btn)
         toolbar_layout.addSpacing(4)
         toolbar_layout.addWidget(self.add_script_btn)
-        content_widget.add_widget(self.chain_toolbar)
 
-        self.script_list_widget = DraggableList()
-        self.script_list_widget.order_changed.connect(self.on_order_changed)
-        self.script_card_list: list[DraggableListItem] = []
-        content_widget.add_widget(self.script_list_widget)
-
-        content_widget.add_stretch(1)
-
-        return content_widget
+        return self.chain_toolbar
 
     def on_interface_shown(self) -> None:
         VerticalScrollInterface.on_interface_shown(self)
@@ -925,12 +921,14 @@ class ScriptSettingInterface(VerticalScrollInterface):
         if self.chosen_config is None:
             return
 
-        self.chosen_config.reorder(new_data_list)
-
-        # 记录旧位置（从旧的 script_card_list 顺序推算）
-        old_index_of = {}
-        for old_idx, card in enumerate(self.script_card_list):
-            old_index_of[id(card.data)] = old_idx
+        old_target_of = {
+            id(config): target
+            for config, target in zip(
+                self.chosen_config.script_list,
+                self.chosen_config.compute_attach_targets(),
+                strict=False,
+            )
+        }
 
         # 更新卡片列表的顺序和索引
         new_card_list: list[DraggableListItem] = []
@@ -941,22 +939,22 @@ class ScriptSettingInterface(VerticalScrollInterface):
                     break
         self.script_card_list = new_card_list
 
-        # 计算哪些数据对象的位置发生了变化
-        moved_ids = set()
-        for new_idx, card in enumerate(self.script_card_list):
-            if old_index_of.get(id(card.data), new_idx) != new_idx:
-                moved_ids.add(id(card.data))
+        self.chosen_config.reorder(new_data_list)
+        new_target_of = {
+            id(config): target
+            for config, target in zip(
+                self.chosen_config.script_list,
+                self.chosen_config.compute_attach_targets(),
+                strict=False,
+            )
+        }
 
         for idx, card in enumerate(self.script_card_list):
             config = card.data
             if isinstance(config, ScriptConfig) and config.script_type == ScriptType.PYTHON:
-                should_clear = id(config) in moved_ids
-                # 挂靠目标位置变了也要清除
-                if not should_clear and config.attach_direction == AttachDirection.POST and idx > 0:
-                    should_clear = id(self.script_card_list[idx - 1].data) in moved_ids
-                if not should_clear and config.attach_direction == AttachDirection.PRE and idx < len(self.script_card_list) - 1:
-                    should_clear = id(self.script_card_list[idx + 1].data) in moved_ids
-                if should_clear:
+                old_target = old_target_of.get(id(config))
+                new_target = new_target_of.get(id(config))
+                if old_target is not new_target:
                     config.attach_direction = AttachDirection.NONE
             card.data.idx = idx
             card.update_item(card.data, idx)

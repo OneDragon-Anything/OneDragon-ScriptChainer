@@ -1,11 +1,20 @@
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
-from qfluentwidgets import FluentIcon, SettingCardGroup, Theme, setTheme
+from qfluentwidgets import (
+    ColorDialog,
+    FluentIcon,
+    SettingCardGroup,
+    Theme,
+    setTheme,
+)
 
 from one_dragon.custom.custom_config import ThemeEnum
+from one_dragon_qt.services.theme_manager import ThemeManager
 from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
     ComboBoxSettingCard,
 )
+from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 
@@ -41,6 +50,11 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.theme_opt.value_changed.connect(self.on_theme_changed)
         group.addSettingCard(self.theme_opt)
 
+        # 自定义主题色按钮
+        self.theme_color_mode_opt = PushSettingCard(icon=FluentIcon.PALETTE, title='自定义主题色', text='选择颜色')
+        self.theme_color_mode_opt.clicked.connect(self._on_custom_theme_color_clicked)
+        group.addSettingCard(self.theme_color_mode_opt)
+
         return group
 
     def on_interface_shown(self) -> None:
@@ -56,3 +70,17 @@ class EditorSettingInterface(VerticalScrollInterface):
         """
         theme = self.theme_opt.getValue()
         setTheme(Theme[theme.upper()],lazy=True)
+
+    def _on_custom_theme_color_clicked(self) -> None:
+        color = self.ctx.custom_config.theme_color
+        dialog = ColorDialog(QColor(color[0], color[1], color[2]), '请选择主题色', self)
+        dialog.colorChanged.connect(self._update_custom_theme_color)
+        dialog.yesButton.setText('确定')
+        dialog.cancelButton.setText('取消')
+        dialog.exec()
+
+    def _update_custom_theme_color(self, color: QColor) -> None:
+        color_tuple = (color.red(), color.green(), color.blue())
+        self.ctx.custom_config.theme_color = color_tuple
+        ThemeManager.set_theme_color(color_tuple)
+

@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
   workflow_dispatch:
     inputs:
       create_release:
@@ -12,11 +18,16 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CREATE_RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.create_release == true) || startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build:
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'build') }}
     runs-on: windows-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
@@ -35,6 +46,11 @@ jobs:
         if ($env:GITHUB_REF -like 'refs/tags/*') {
           # 已由 tag 推送触发，直接使用该 tag 作为版本
           $version = $env:GITHUB_REF.Substring(10)
+          $tag = $version
+        } elseif ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+          # PR 构建只产出测试包，不创建 / 推送 tag
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          $version = "pr-${{ github.event.pull_request.number }}-$shortSha"
           $tag = $version
         } else {
           # 手动 workflow_dispatch 触发：使用 git 的语义化版本排序，选出最新 tag，然后生成 / 递增 beta 版本
@@ -216,10 +232,15 @@ jobs:
             $message = $matches[1]
             $hash = $matches[2]
 
-            # 提取冒号前的前缀
-            if ($message -match "^([^:]+):(.*)$") {
+            # 兼容带 scope 的 Conventional Commits，例如 feat(ui): xxx / feat(ui)!: xxx
+            if ($message -match "^([A-Za-z]+)(?:\(([^)!]+)\))?(!)?:\s*(.*)$") {
               $prefix = $matches[1].Trim().ToLower()
-              $content = $matches[2].Trim()
+              $scope = if ($null -ne $matches[2]) { $matches[2].Trim() } else { "" }
+              $content = $matches[4].Trim()
+
+              if (-not [string]::IsNullOrWhiteSpace($scope)) {
+                $content = "$($scope): $content"
+              }
 
               # 检查前缀是否在已知分类中
               if ($categories.ContainsKey($prefix)) {

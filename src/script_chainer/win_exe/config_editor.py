@@ -1,11 +1,13 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import NavigationItemPosition, Theme, setTheme
+from qfluentwidgets import Dialog, FluentIcon, NavigationItemPosition, Theme, setTheme
 
 from one_dragon.version import __version__
 from one_dragon_qt.services.styles_manager import OdQtStyleSheet
 from one_dragon_qt.view.like_interface import LikeInterface
 from one_dragon_qt.view.setting.setting_push_interface import SettingPushInterface
+from one_dragon_qt.widgets.navigation_button import NavigationButton
 from one_dragon_qt.windows.app_window_base import AppWindowBase
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.gui.page.editor_setting_interface import EditorSettingInterface
@@ -13,6 +15,8 @@ from script_chainer.gui.page.script_setting_interface import ScriptSettingInterf
 
 
 class AppWindow(AppWindowBase):
+
+    HELP_URL = 'https://one-dragon.com/tools/zh/script_chainer.html'
 
     def __init__(self, ctx: ScriptChainerContext, parent=None):
         """初始化主窗口类，设置窗口标题和图标"""
@@ -55,6 +59,16 @@ class AppWindow(AppWindowBase):
         """创建和添加各个子界面"""
         self.add_sub_interface(ScriptSettingInterface(self.ctx, parent=self))
 
+        help_button = NavigationButton(
+            object_name='script_chainer_help_button',
+            text='说明',
+            icon=FluentIcon.HELP,
+            on_click=self.open_help_url,
+            parent=self.navigationInterface,
+        )
+        help_button.setToolTip('使用说明')
+        self.add_nav_widget(help_button, position=NavigationItemPosition.BOTTOM)
+
         self.add_sub_interface(
             LikeInterface(self.ctx, parent=self),
             position=NavigationItemPosition.BOTTOM,
@@ -69,6 +83,18 @@ class AppWindow(AppWindowBase):
             EditorSettingInterface(self.ctx, parent=self),
             position=NavigationItemPosition.BOTTOM,
         )
+
+    def open_help_url(self) -> None:
+        dialog = Dialog(
+            '打开使用说明',
+            '即将在浏览器中打开千机链使用说明，是否继续？',
+            parent=self,
+        )
+        dialog.setTitleBarVisible(False)
+        dialog.yesButton.setText('打开')
+        dialog.cancelButton.setText('取消')
+        if dialog.exec():
+            QDesktopServices.openUrl(QUrl(self.HELP_URL))
 
 
 def run_editor():
