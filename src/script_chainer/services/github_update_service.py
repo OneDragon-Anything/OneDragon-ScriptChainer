@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -35,6 +36,7 @@ class GithubUpdateService:
 
     def download_and_restart(
         self,
+        target_tag: str | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> tuple[bool, str]:
         if not os_utils.run_in_exe():
@@ -50,8 +52,8 @@ class GithubUpdateService:
             stage_dir.mkdir(parents=True, exist_ok=True)
 
             if progress_callback is not None:
-                progress_callback(0, gt('正在获取 GitHub 最新版本'))
-            latest_tag = self._get_latest_tag()
+                progress_callback(0, gt('正在获取 GitHub 更新版本'))
+            latest_tag = target_tag or self.get_latest_tag()
             release_zip_name = f'{RELEASE_ZIP_PREFIX}-{latest_tag}.zip'
             zip_path = update_dir / release_zip_name
             download_url = self._build_download_url(latest_tag, release_zip_name)
@@ -74,21 +76,23 @@ class GithubUpdateService:
             log.error('准备 GitHub 更新失败', exc_info=True)
             return False, f"{gt('准备 GitHub 更新失败')}: {e}"
 
-    def _get_latest_tag(self) -> str:
+    def get_latest_tags(self) -> tuple[str, str]:
+        stable_tag = self.get_latest_tag()
+        try:
+            beta_tag = self.get_latest_beta_tag()
+        except Exception:
+            log.error('获取 GitHub 最新测试版失败', exc_info=True)
+            beta_tag = ''
+        return stable_tag, beta_tag
+
+    def get_latest_tag(self) -> str:
         latest_url = f'{self.ctx.project_config.github_homepage}/releases/latest'
         request_url = self._with_gh_proxy(latest_url)
-        proxy = self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
-            if proxy is not None else urllib.request.ProxyHandler({}),
-        )
         try:
-            request = urllib.request.Request(request_url, method='HEAD')
-            with opener.open(request, timeout=15) as response:
+            with self._open_request(request_url, method='HEAD') as response:
                 final_url = response.geturl()
         except Exception:
-            request = urllib.request.Request(request_url)
-            with opener.open(request, timeout=15) as response:
+            with self._open_request(request_url) as response:
                 final_url = response.geturl()
 
         marker = '/releases/tag/'
@@ -100,6 +104,48 @@ class GithubUpdateService:
         if not tag:
             raise RuntimeError(f'无法解析最新版本: {final_url}')
         return tag
+
+    def get_latest_beta_tag(self) -> str:
+        repo_path = self._get_github_repo_path()
+        releases_url = f'https://api.github.com/repos/{repo_path}/releases?per_page=30'
+        with self._open_request(releases_url, headers={'User-Agent': 'OneDragon-ScriptChainer'}) as response:
+            releases = json.loads(response.read().decode('utf-8'))
+
+        for release in releases:
+            if release.get('draft'):
+                continue
+            if release.get('prerelease'):
+                tag = str(release.get('tag_name', '')).strip()
+                if tag:
+                    return tag
+
+        return ''
+
+    def _get_github_repo_path(self) -> str:
+        parsed = urllib.parse.urlparse(self.ctx.project_config.github_homepage)
+        repo_path = parsed.path.strip('/')
+        if repo_path.endswith('.git'):
+            repo_path = repo_path[:-4]
+        if repo_path.count('/') < 1:
+            raise RuntimeError(f'无法解析 GitHub 仓库地址: {self.ctx.project_config.github_homepage}')
+        return repo_path
+
+    def _open_request(
+        self,
+        url: str,
+        method: str = 'GET',
+        headers: dict[str, str] | None = None,
+    ):
+        request = urllib.request.Request(url, method=method, headers=headers or {})
+        return self._build_opener().open(request, timeout=15)
+
+    def _build_opener(self):
+        proxy = self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None
+        proxy_handler = (
+            urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
+            if proxy is not None else urllib.request.ProxyHandler({})
+        )
+        return urllib.request.build_opener(proxy_handler)
 
     def _build_download_url(self, latest_tag: str, release_zip_name: str) -> str:
         download_url = (
