@@ -142,14 +142,16 @@ jobs:
       if: ${{ env.CREATE_RELEASE == 'false' }}
       uses: actions/upload-artifact@v4
       with:
-        name: Editor
+        name: Editor-r${{ github.run_number }}
+        include-hidden-files: true
         path: deploy/dist/OneDragon ScriptChainer/
 
     - name: Upload Runner
       if: ${{ env.CREATE_RELEASE == 'false' }}
       uses: actions/upload-artifact@v4
       with:
-        name: Runner
+        name: Runner-r${{ github.run_number }}
+        include-hidden-files: true
         path: deploy/dist/OneDragon ScriptChainer Runner.exe
 
     - name: Upload Dist
@@ -157,6 +159,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: dist
+        include-hidden-files: true
         if-no-files-found: error
         path: deploy/dist/OneDragon ScriptChainer/
 
