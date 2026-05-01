@@ -38,10 +38,10 @@ class GithubUpdateRunner(QThread):
     progress_changed = Signal(float, str)
     update_finished = Signal(bool, str)
 
-    def __init__(self, service: GithubUpdateService):
+    def __init__(self, service: GithubUpdateService, target_version: str):
         QThread.__init__(self)
         self.service = service
-        self.target_version = ''
+        self.target_version = target_version
 
     def run(self) -> None:
         success, message = self.service.download_and_restart(self.target_version, self._on_progress)
@@ -104,9 +104,7 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.version_checker = GithubUpdateChecker(ctx)
         self.version_checker.check_finished.connect(self._on_version_check_finished)
 
-        self.update_runner = GithubUpdateRunner(ctx.github_update_service)
-        self.update_runner.progress_changed.connect(self._on_update_progress)
-        self.update_runner.update_finished.connect(self._on_update_finished)
+        self.update_runner: GithubUpdateRunner | None = None
 
         MultiPushSettingCard.__init__(
             self,
@@ -119,7 +117,7 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.check_and_update_display()
 
     def check_and_update_display(self) -> None:
-        if self.version_checker.isRunning() or self.update_runner.isRunning():
+        if self.version_checker.isRunning() or self._is_update_running():
             return
 
         self.setContent(gt('正在检查 GitHub 最新版本...'))
@@ -154,7 +152,7 @@ class GithubUpdateCard(MultiPushSettingCard):
         self._update_display_by_channel()
 
     def _on_channel_changed(self, _index: int) -> None:
-        if self.version_checker.isRunning() or self.update_runner.isRunning():
+        if self.version_checker.isRunning() or self._is_update_running():
             return
         self._update_display_by_channel()
 
@@ -190,7 +188,7 @@ class GithubUpdateCard(MultiPushSettingCard):
             self.update_btn.setEnabled(True)
 
     def _on_update_clicked(self) -> None:
-        if self.update_runner.isRunning():
+        if self._is_update_running():
             return
 
         self.channel_combo.setDisabled(True)
@@ -198,7 +196,9 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.update_btn.setDisabled(True)
         self.update_btn.setText(gt('更新中'))
         self.setContent(gt('正在准备 GitHub 更新...'))
-        self.update_runner.target_version = self.target_version
+        self.update_runner = GithubUpdateRunner(self.ctx.github_update_service, self.target_version)
+        self.update_runner.progress_changed.connect(self._on_update_progress)
+        self.update_runner.update_finished.connect(self._on_update_finished)
         self.update_runner.start()
 
     def _on_update_progress(self, progress: float, message: str) -> None:
@@ -216,8 +216,11 @@ class GithubUpdateCard(MultiPushSettingCard):
 
         self.channel_combo.setEnabled(True)
         self.check_btn.setEnabled(True)
-        self.update_btn.setText(gt('更新'))
-        self.update_btn.setEnabled(bool(self.target_version) and os_utils.run_in_exe())
+        self.update_btn.setText(gt('重试'))
+        self.update_btn.setEnabled(True)
+
+    def _is_update_running(self) -> bool:
+        return self.update_runner is not None and self.update_runner.isRunning()
 
     def _current_version(self) -> str:
         from one_dragon.version import __version__

@@ -86,23 +86,14 @@ class GithubUpdateService:
         return stable_tag, beta_tag
 
     def get_latest_tag(self) -> str:
-        latest_url = f'{self.ctx.project_config.github_homepage}/releases/latest'
-        request_url = self._with_gh_proxy(latest_url)
-        try:
-            with self._open_request(request_url, method='HEAD') as response:
-                final_url = response.geturl()
-        except Exception:
-            with self._open_request(request_url) as response:
-                final_url = response.geturl()
+        repo_path = self._get_github_repo_path()
+        release_url = f'https://api.github.com/repos/{repo_path}/releases/latest'
+        with self._open_request(release_url, headers={'User-Agent': 'OneDragon-ScriptChainer'}) as response:
+            release = json.loads(response.read().decode('utf-8'))
 
-        marker = '/releases/tag/'
-        if marker not in final_url:
-            raise RuntimeError(f'无法解析最新版本: {final_url}')
-
-        tag = final_url.rsplit(marker, 1)[1].split('?', 1)[0].split('#', 1)[0]
-        tag = urllib.parse.unquote(tag).strip('/')
+        tag = str(release.get('tag_name', '')).strip()
         if not tag:
-            raise RuntimeError(f'无法解析最新版本: {final_url}')
+            raise RuntimeError(f'无法解析最新版本: {release_url}')
         return tag
 
     def get_latest_beta_tag(self) -> str:
