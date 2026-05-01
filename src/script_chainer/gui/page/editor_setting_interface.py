@@ -67,6 +67,19 @@ class GithubUpdateChecker(QThread):
             self.check_finished.emit(False, '', '', str(e))
 
 
+class GhProxyUpdateRunner(QThread):
+
+    update_finished = Signal(str)
+
+    def __init__(self, ctx: ScriptChainerContext):
+        QThread.__init__(self)
+        self.ctx = ctx
+
+    def run(self) -> None:
+        self.ctx.gh_proxy_service.update_proxy_url()
+        self.update_finished.emit(self.ctx.env_config.gh_proxy_url)
+
+
 class GithubUpdateCard(MultiPushSettingCard):
 
     def __init__(self, ctx: ScriptChainerContext, parent=None):
@@ -216,6 +229,8 @@ class EditorSettingInterface(VerticalScrollInterface):
 
     def __init__(self, ctx: ScriptChainerContext, parent=None):
         self.ctx: ScriptChainerContext = ctx
+        self.gh_proxy_update_runner = GhProxyUpdateRunner(ctx)
+        self.gh_proxy_update_runner.update_finished.connect(self._on_gh_proxy_update_finished)
 
         VerticalScrollInterface.__init__(
             self,
@@ -316,6 +331,7 @@ class EditorSettingInterface(VerticalScrollInterface):
             self.ctx.env_config.get_prop_adapter('auto_fetch_gh_proxy_url')
         )
         self.update_proxy_ui()
+        self.refresh_gh_proxy_url_by_config()
 
     def on_theme_changed(self, index: int, value: str) -> None:
         """主题改变。
@@ -348,8 +364,24 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.ctx.env_config.init_system_proxy()
 
     def on_fetch_gh_proxy_url_clicked(self) -> None:
-        self.ctx.gh_proxy_service.update_proxy_url()
-        self.gh_proxy_url_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('gh_proxy_url'))
+        self.start_gh_proxy_url_refresh()
+
+    def refresh_gh_proxy_url_by_config(self) -> None:
+        if not self.ctx.env_config.auto_fetch_gh_proxy_url:
+            return
+        if self.ctx.env_config.proxy_type != ProxyTypeEnum.GHPROXY.value.value:
+            return
+        self.start_gh_proxy_url_refresh()
+
+    def start_gh_proxy_url_refresh(self) -> None:
+        if self.gh_proxy_update_runner.isRunning():
+            return
+        self.fetch_gh_proxy_url_btn.setDisabled(True)
+        self.gh_proxy_update_runner.start()
+
+    def _on_gh_proxy_update_finished(self, _proxy_url: str) -> None:
+        self.gh_proxy_url_opt.setValue(_proxy_url, emit_signal=False)
+        self.fetch_gh_proxy_url_btn.setEnabled(True)
 
     def update_proxy_ui(self) -> None:
         if self.ctx.env_config.proxy_type == ProxyTypeEnum.GHPROXY.value.value:
