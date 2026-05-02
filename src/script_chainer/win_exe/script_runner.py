@@ -213,11 +213,7 @@ def _launch_script(
             args=args_list,
             target_process=target,
             search_timeout=30,
-            stdout_callback=_make_stdout_callback(
-                display_name,
-                log_notifier=log_notifier,
-                state=state,
-            ),
+            stdout_callback=_make_stdout_callback(display_name, log_notifier, state),
         )
     except LauncherExitError as e:
         log.error('启动器异常退出: %s', e, exc_info=True)
@@ -449,7 +445,7 @@ def _run_script_once(
 
     # 1. 启动脚本子进程
     state = _RunMonitorState()
-    pm = _launch_script(script_config, log_notifier=log_notifier, state=state)
+    pm = _launch_script(script_config, log_notifier, state)
     _active_pm = pm
     try:
         # 2. 等待子进程就绪
@@ -509,7 +505,7 @@ def _run_external_script_with_retries(
                     script_config,
                 )
         try:
-            _run_script_once(script_config, log_notifier=log_notifier)
+            _run_script_once(script_config, log_notifier)
             return
         except _NoLogTimeoutError:
             if retry_count < max_retries:
