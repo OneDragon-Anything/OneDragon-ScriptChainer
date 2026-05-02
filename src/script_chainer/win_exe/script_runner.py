@@ -397,7 +397,7 @@ def _monitor_script_done(
             break
 
 
-def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
+def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager, force_script: bool = False) -> None:
     """清理脚本和游戏进程。
 
     通过 ProcessManager.kill() 精确终止已追踪的进程及其子进程树（基于 PID）。
@@ -405,8 +405,9 @@ def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
     Args:
         script_config: 脚本配置。
         pm: ProcessManager 实例。
+        force_script: 是否忽略用户配置，强制终止当前被管理的脚本进程。
     """
-    if script_config.kill_script_after_done:
+    if force_script or script_config.kill_script_after_done:
         print_message(f'尝试关闭脚本进程 {pm.main_name} (pid={pm.main_pid})')
         try:
             pm.kill()
@@ -499,7 +500,7 @@ def run_script(
                 _monitor_script_done(script_config, state, last_log_time=last_log_time)
             except _NoLogTimeoutError:
                 # 静默超时：终止当前进程，进入下一轮重试
-                _cleanup_processes(script_config, pm)
+                _cleanup_processes(script_config, pm, force_script=True)
                 if attempt < max_retries:
                     continue  # 跳出 try 块，由外层 for 循环进入下一轮
                 else:
