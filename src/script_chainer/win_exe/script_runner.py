@@ -45,12 +45,17 @@ from script_chainer.win_exe.runner_logging import (
 _active_pm: ProcessManager | None = None
 
 
+class _NoLogTimeoutError(Exception):
+    """脚本长时间无日志输出时抛出，触发外层重试。"""
+
+
 @dataclass
 class _RunMonitorState:
     """单次脚本运行监控过程中的瞬态状态。"""
 
     script_ever_existed: bool = False
     game_ever_existed: bool = False
+    last_log_time: float | None = None
 
 
 class _TeeWriter:
@@ -143,29 +148,17 @@ def _push_chain_notification(
     )
 
 
-def _run_group_script(
-    script_config: ScriptConfig,
-    log_notifier: LogNotifier | None = None,
-) -> None:
-    """运行运行组中的单个脚本。"""
-    try:
-        if script_config.script_type == ScriptType.PYTHON:
-            _run_python_script(script_config, log_notifier=log_notifier)
-        else:
-            run_script(script_config, log_notifier=log_notifier)
-    except Exception:
-        log.error('脚本执行异常', exc_info=True)
-
-
 def _make_stdout_callback(
     display_name: str,
     log_notifier: LogNotifier | None = None,
+    state: _RunMonitorState | None = None,
 ) -> Callable[[str], None]:
     """创建 stdout 回调，为每行输出添加前缀。
 
     Args:
         display_name: 显示名称。
         log_notifier: 可选的日志通知器，用于定时推送日志。
+        state: 可选的运行监控状态，用于记录最后一次收到日志的时间戳。
     """
     prefix = f'{Style.DIM}[{display_name}]{Style.RESET_ALL}'
 
@@ -174,6 +167,8 @@ def _make_stdout_callback(
         log.info('[脚本] %s', line)
         if log_notifier is not None:
             log_notifier.add(line)
+        if state is not None:
+            state.last_log_time = time.time()
 
     return _on_stdout
 
@@ -181,6 +176,7 @@ def _make_stdout_callback(
 def _launch_script(
     script_config: ScriptConfig,
     log_notifier: LogNotifier | None = None,
+    state: _RunMonitorState | None = None,
 ) -> ProcessManager:
     """启动脚本子进程并返回 ProcessManager。
 
@@ -192,6 +188,7 @@ def _launch_script(
     Args:
         script_config: 脚本配置。
         log_notifier: 可选的日志通知器，用于定时推送日志。
+        state: 可选的运行监控状态，用于记录最后一次收到日志的时间戳。
 
     Returns:
         已初始化的 ProcessManager。
@@ -216,10 +213,7 @@ def _launch_script(
             args=args_list,
             target_process=target,
             search_timeout=30,
-            stdout_callback=_make_stdout_callback(
-                display_name,
-                log_notifier=log_notifier,
-            ),
+            stdout_callback=_make_stdout_callback(display_name, log_notifier, state),
         )
     except LauncherExitError as e:
         log.error('启动器异常退出: %s', e, exc_info=True)
@@ -300,9 +294,16 @@ def _monitor_script_done(
     script_config: ScriptConfig,
     state: _RunMonitorState,
 ) -> None:
-    """监控脚本运行状态，等待完成条件满足。"""
+    """监控脚本运行状态，等待完成条件满足。
+
+    Args:
+        script_config: 脚本配置。
+        state: 运行监控状态（跨 _wait_for_subprocess_ready 持久化的进程存在标志）。
+    """
     start_time = time.time()
     last_status: str = ''
+
+    no_log_timeout = script_config.no_log_timeout_seconds
 
     while True:
         is_done: bool = False
@@ -350,18 +351,33 @@ def _monitor_script_done(
             print_message(f'未知的检查结束方式 {script_config.check_done}', level='ERROR')
             is_done = True
 
-        if time.time() - start_time > script_config.run_timeout_seconds:
+        now = time.time()
+
+        # 总运行超时检查
+        if now - start_time > script_config.run_timeout_seconds:
             is_done = True
             print_message(f'脚本运行超时 {script_config.script_display_name}', level='ERROR')
 
         if is_done:
             break
 
+        # 静默超时检查（无日志输出超时，触发重启）
+        if (
+            no_log_timeout > 0
+            and state.last_log_time is not None
+            and now - state.last_log_time > no_log_timeout
+        ):
+            print_message(
+                f'脚本超过 {no_log_timeout} 秒无日志输出，判定为未响应 {script_config.script_display_name}',
+                level='ERROR',
+            )
+            raise _NoLogTimeoutError()
+
         if _exit_controller.wait(1):
             break
 
 
-def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
+def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager, force_script: bool = False) -> None:
     """清理脚本和游戏进程。
 
     通过 ProcessManager.kill() 精确终止已追踪的进程及其子进程树（基于 PID）。
@@ -369,8 +385,9 @@ def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
     Args:
         script_config: 脚本配置。
         pm: ProcessManager 实例。
+        force_script: 是否忽略用户配置，强制终止当前被管理的脚本进程。
     """
-    if script_config.kill_script_after_done:
+    if force_script or script_config.kill_script_after_done:
         print_message(f'尝试关闭脚本进程 {pm.main_name} (pid={pm.main_pid})')
         try:
             pm.kill()
@@ -394,11 +411,11 @@ def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager) -> None:
                 log.error('关闭游戏进程失败', exc_info=True)
 
 
-def run_script(
+def _run_script_once(
     script_config: ScriptConfig,
     log_notifier: LogNotifier | None = None,
 ) -> None:
-    """运行单个脚本的完整生命周期。
+    """运行单个脚本的一次完整生命周期。
 
     流程:
         1. 校验配置。
@@ -406,6 +423,11 @@ def run_script(
         3. 等待子进程就绪。
         4. 监控运行状态。
         5. 清理进程。
+
+    静默超时逻辑:
+        当 script_config.no_log_timeout_seconds > 0 时，若脚本在指定时间内没有任何
+        日志输出，则认为游戏/脚本未响应，会终止当前进程并向调用方抛出
+        _NoLogTimeoutError，由链编排层决定是否重试和发送通知。
 
     Args:
         script_config: 脚本配置。
@@ -419,11 +441,12 @@ def run_script(
         return
 
     script_path = script_config.script_path
+    no_log_timeout = script_config.no_log_timeout_seconds
 
     # 1. 启动脚本子进程
-    pm = _launch_script(script_config, log_notifier=log_notifier)
-    _active_pm = pm
     state = _RunMonitorState()
+    pm = _launch_script(script_config, log_notifier, state)
+    _active_pm = pm
     try:
         # 2. 等待子进程就绪
         # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
@@ -437,14 +460,78 @@ def run_script(
             return
 
         print_message(f'脚本子进程创建成功 {script_path}', level='PASS')
+        if no_log_timeout > 0:
+            state.last_log_time = time.time()
 
         # 3. 监控脚本运行状态
-        _monitor_script_done(script_config, state)
+        try:
+            _monitor_script_done(script_config, state)
+        except _NoLogTimeoutError:
+            _cleanup_processes(script_config, pm, force_script=True)
+            raise
 
-        # 4. 清理进程
+        # 4. 清理进程（正常退出路径）
         _cleanup_processes(script_config, pm)
     finally:
         _active_pm = None
+
+
+def _run_external_script_with_retries(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+    ctx: ScriptChainerContext | None = None,
+    chain_name: str = '',
+) -> None:
+    """运行外部脚本，并在静默超时时按配置重试。"""
+    max_retries = (
+        script_config.no_log_max_retries
+        if script_config.no_log_timeout_seconds > 0
+        else 0
+    )
+    for retry_count in range(max_retries + 1):
+        if retry_count > 0:
+            if log_notifier is not None:
+                log_notifier.flush()
+            print_message(
+                f'重试运行脚本 ({retry_count}/{max_retries}) '
+                f'{script_config.script_display_name}',
+                level='INFO',
+            )
+            if script_config.notify_start:
+                _push_chain_notification(
+                    ctx,
+                    chain_name,
+                    f'无日志超时重试 ({retry_count}/{max_retries})',
+                    script_config,
+                )
+        try:
+            _run_script_once(script_config, log_notifier)
+            return
+        except _NoLogTimeoutError:
+            if retry_count < max_retries:
+                continue
+            print_message(
+                f'已达最大重试次数 ({max_retries})，放弃重启 '
+                f'{script_config.script_display_name}',
+                level='ERROR',
+            )
+            return
+
+
+def _run_script_in_group(
+    script_config: ScriptConfig,
+    log_notifier: LogNotifier | None = None,
+    ctx: ScriptChainerContext | None = None,
+    chain_name: str = '',
+) -> None:
+    """运行运行组中的单个脚本。"""
+    try:
+        if script_config.script_type == ScriptType.PYTHON:
+            _run_python_script(script_config, log_notifier)
+        else:
+            _run_external_script_with_retries(script_config, log_notifier, ctx, chain_name)
+    except Exception:
+        log.error('脚本执行异常', exc_info=True)
 
 
 def _run_python_script(
@@ -608,7 +695,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
                         )
 
                     for script_config in group.scripts:
-                        _run_group_script(script_config, log_notifier=log_notifier)
+                        _run_script_in_group(script_config, log_notifier, ctx, chain_name)
 
                     if group.host.notify_done:
                         _push_chain_notification(

@@ -59,6 +59,10 @@ class LogNotifier:
             self._timer = None
         self._flush()
 
+    def flush(self) -> None:
+        """立即推送当前通知池中的日志。"""
+        self._flush()
+
     def _schedule_next(self) -> None:
         if self._stopped:
             return
