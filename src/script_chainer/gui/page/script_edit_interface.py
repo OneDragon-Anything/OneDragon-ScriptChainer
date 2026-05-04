@@ -19,14 +19,14 @@ from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
     ComboBoxSettingCard,
 )
-from one_dragon_qt.widgets.setting_card.editable_combo_box_setting_card import (
-    EditableComboBoxSettingCard,
-)
 from one_dragon_qt.widgets.setting_card.multi_push_setting_card import (
     MultiPushSettingCard,
 )
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
+from one_dragon_qt.widgets.setting_card.value_display_editable_combo_box_setting_card import (
+    ValueDisplayEditableComboBoxSettingCard,
+)
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.config.script_config import (
     CheckDoneMethods,
@@ -77,26 +77,22 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.script_path_opt.clicked.connect(self.on_script_path_clicked)
         content_widget.add_widget(self.script_path_opt)
 
-        self.script_process_name_opt = EditableComboBoxSettingCard(
+        self.script_process_name_opt = ValueDisplayEditableComboBoxSettingCard(
             icon=FluentIcon.GAME,
             title='脚本进程名称',
             content='需要监听脚本关闭时填入',
             options_enum=ScriptProcessName,
             input_placeholder='选择或输入脚本进程名',
         )
-        self.script_process_name_opt.combo_box.setFixedWidth(320)
-        self.script_process_name_opt.value_changed.connect(self._on_script_process_selected)
         content_widget.add_widget(self.script_process_name_opt)
 
-        self.game_process_name_opt = EditableComboBoxSettingCard(
+        self.game_process_name_opt = ValueDisplayEditableComboBoxSettingCard(
             icon=FluentIcon.GAME,
             title='游戏进程名称',
             content='需要监听游戏关闭时填入',
             options_enum=GameProcessName,
             input_placeholder='选择或输入游戏进程名',
         )
-        self.game_process_name_opt.combo_box.setFixedWidth(320)
-        self.game_process_name_opt.value_changed.connect(self._on_game_process_selected)
         content_widget.add_widget(self.game_process_name_opt)
 
         self.run_timeout_seconds_opt = TextSettingCard(
@@ -225,8 +221,8 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.config = config.copy()
 
         self.script_path_opt.setContent(config.script_path)
-        self._set_editable_combo_value(self.script_process_name_opt, config.script_process_name)
-        self._set_editable_combo_value(self.game_process_name_opt, config.game_process_name)
+        self.script_process_name_opt.setValue(config.script_process_name, emit_signal=False)
+        self.game_process_name_opt.setValue(config.game_process_name, emit_signal=False)
         self.run_timeout_seconds_opt.setValue(str(config.run_timeout_seconds), emit_signal=False)
         self.check_done_opt.setValue(config.check_done, emit_signal=False)
         self.kill_script_after_done_switch.setChecked(config.kill_script_after_done)
@@ -268,31 +264,6 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.no_log_timeout_input.setEnabled(checked)
         self.no_log_max_retries_input.setEnabled(checked)
 
-    @staticmethod
-    def _set_editable_combo_value(card: EditableComboBoxSettingCard, value: str) -> None:
-        """设置可编辑下拉框的值，若预设列表中无匹配则直接设置文本"""
-        card.combo_box.blockSignals(True)
-        matched = False
-        for idx in range(card.combo_box.count()):
-            if card.combo_box.itemData(idx) == value:
-                card.combo_box.setCurrentIndex(idx)
-                matched = True
-                break
-        if not matched:
-            card.combo_box.setCurrentIndex(-1)
-            card.combo_box.setText(value if value else '')
-        card.combo_box.blockSignals(False)
-
-    def _on_script_process_selected(self, _idx: int, val: object) -> None:
-        """脚本进程选中后，显示 value 并恢复 content"""
-        self.script_process_name_opt.combo_box.setText(str(val) if val else '')
-        self.script_process_name_opt.setContent('需要监听脚本关闭时填入')
-
-    def _on_game_process_selected(self, _idx: int, val: object) -> None:
-        """游戏进程选中后，显示 value 并恢复 content"""
-        self.game_process_name_opt.combo_box.setText(str(val) if val else '')
-        self.game_process_name_opt.setContent('需要监听游戏关闭时填入')
-
     def on_script_path_clicked(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, gt('选择你的脚本'))
         if file_path is not None and file_path != '':
@@ -302,12 +273,10 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.config.script_path = file_path
         self.script_path_opt.setContent(file_path)
 
-    def _get_editable_combo_value(self, card: EditableComboBoxSettingCard) -> str:
+    def _get_editable_combo_value(self, card: ValueDisplayEditableComboBoxSettingCard) -> str:
         """获取可编辑下拉框的值，优先取 itemData，否则取用户输入的文本"""
         val = card.getValue()
-        if val is not None:
-            return str(val)
-        return card.combo_box.currentText().strip()
+        return '' if val is None else str(val).strip()
 
     def get_config_value(self) -> ScriptConfig:
         config = self.config.copy()
