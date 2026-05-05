@@ -278,7 +278,6 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.proxy_type_opt = ComboBoxSettingCard(
             icon=FluentIcon.GLOBE,
             title='网络代理',
-            content='免费代理仅能加速 GitHub 更新，无法加速个人代理之外的请求',
             options_enum=ProxyTypeEnum,
         )
         self.proxy_type_opt.value_changed.connect(self._on_proxy_type_changed)
@@ -294,7 +293,7 @@ class EditorSettingInterface(VerticalScrollInterface):
 
         self.gh_proxy_url_opt = TextSettingCard(
             icon=FluentIcon.GLOBE,
-            title='免费代理',
+            title='GitHub 代理',
         )
         group.addSettingCard(self.gh_proxy_url_opt)
 
