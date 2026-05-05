@@ -42,13 +42,21 @@ class GithubUpdateRunner(QThread):
         QThread.__init__(self)
         self.service = service
         self.target_version = target_version
+        self.progress_signal: dict[str, str | None] = {'signal': None}
 
     def run(self) -> None:
-        success, message = self.service.download_and_restart(self.target_version, self._on_progress)
+        success, message = self.service.download_and_restart(
+            self.target_version,
+            self._on_progress,
+            self.progress_signal,
+        )
         self.update_finished.emit(success, message)
 
     def _on_progress(self, progress: float, message: str) -> None:
         self.progress_changed.emit(progress, message)
+
+    def cancel(self) -> None:
+        self.progress_signal['signal'] = 'cancel'
 
 
 class GithubUpdateChecker(QThread):
@@ -101,6 +109,10 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.update_btn = PrimaryPushButton(text=gt('更新'))
         self.update_btn.clicked.connect(self._on_update_clicked)
 
+        self.cancel_btn = PushButton(gt('取消'))
+        self.cancel_btn.clicked.connect(self._on_cancel_clicked)
+        self.cancel_btn.setVisible(False)
+
         self.version_checker = GithubUpdateChecker(ctx)
         self.version_checker.check_finished.connect(self._on_version_check_finished)
 
@@ -108,7 +120,7 @@ class GithubUpdateCard(MultiPushSettingCard):
 
         MultiPushSettingCard.__init__(
             self,
-            btn_list=[self.channel_combo, self.check_btn, self.update_btn],
+            btn_list=[self.channel_combo, self.check_btn, self.update_btn, self.cancel_btn],
             icon=FluentIcon.SYNC,
             title='程序更新',
             content='检查中...',
@@ -120,6 +132,8 @@ class GithubUpdateCard(MultiPushSettingCard):
         if self.version_checker.isRunning() or self._is_update_running():
             return
 
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.setEnabled(False)
         self.setContent(gt('正在检查 GitHub 最新版本...'))
         self.channel_combo.setDisabled(True)
         self.check_btn.setDisabled(True)
@@ -195,11 +209,22 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.check_btn.setDisabled(True)
         self.update_btn.setDisabled(True)
         self.update_btn.setText(gt('更新中'))
+        self.cancel_btn.setVisible(True)
+        self.cancel_btn.setEnabled(True)
         self.setContent(gt('正在准备 GitHub 更新...'))
         self.update_runner = GithubUpdateRunner(self.ctx.github_update_service, self.target_version)
         self.update_runner.progress_changed.connect(self._on_update_progress)
         self.update_runner.update_finished.connect(self._on_update_finished)
         self.update_runner.start()
+
+    def _on_cancel_clicked(self) -> None:
+        if not self._is_update_running() or self.update_runner is None:
+            return
+
+        self.update_runner.cancel()
+        self.cancel_btn.setDisabled(True)
+        self.update_btn.setText(gt('取消中'))
+        self.setContent(gt('正在取消下载...'))
 
     def _on_update_progress(self, progress: float, message: str) -> None:
         if progress > 0:
@@ -208,6 +233,8 @@ class GithubUpdateCard(MultiPushSettingCard):
             self.setContent(message)
 
     def _on_update_finished(self, success: bool, message: str) -> None:
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.setEnabled(False)
         self.setContent(message)
         if success:
             self.update_btn.setText(gt('重启中'))
@@ -216,7 +243,7 @@ class GithubUpdateCard(MultiPushSettingCard):
 
         self.channel_combo.setEnabled(True)
         self.check_btn.setEnabled(True)
-        self.update_btn.setText(gt('重试'))
+        self.update_btn.setText(gt('更新') if message == gt('下载已取消') else gt('重试'))
         self.update_btn.setEnabled(True)
 
     def _is_update_running(self) -> bool:
@@ -277,7 +304,7 @@ class EditorSettingInterface(VerticalScrollInterface):
 
         self.proxy_type_opt = ComboBoxSettingCard(
             icon=FluentIcon.GLOBE,
-            title='网络代理',
+            title='代理类型',
             options_enum=ProxyTypeEnum,
         )
         self.proxy_type_opt.value_changed.connect(self._on_proxy_type_changed)

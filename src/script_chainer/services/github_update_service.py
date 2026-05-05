@@ -10,7 +10,11 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-from one_dragon.utils import http_utils, os_utils
+from one_dragon.base.web.common_downloader import (
+    CommonDownloader,
+    CommonDownloaderParam,
+)
+from one_dragon.utils import os_utils
 from one_dragon.utils.i18_utils import gt
 from one_dragon.utils.log_utils import log
 
@@ -38,6 +42,7 @@ class GithubUpdateService:
         self,
         target_tag: str | None = None,
         progress_callback: ProgressCallback | None = None,
+        progress_signal: dict[str, str | None] | None = None,
     ) -> tuple[bool, str]:
         if not os_utils.run_in_exe():
             return False, gt('当前不是发布版，无法自动更新')
@@ -54,12 +59,25 @@ class GithubUpdateService:
             if progress_callback is not None:
                 progress_callback(0, gt('正在获取 GitHub 更新版本'))
             latest_tag = target_tag or self.get_latest_tag()
-            release_zip_name = f'{RELEASE_ZIP_PREFIX}-{latest_tag}.zip'
+            downloader_param = self._get_downloader_param(latest_tag, update_dir)
+            release_zip_name = downloader_param.save_file_name
             zip_path = update_dir / release_zip_name
-            download_url = self._build_download_url(latest_tag, release_zip_name)
+            downloader = CommonDownloader(downloader_param)
             proxy = self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None
-            if not http_utils.download_file(download_url, str(zip_path), proxy, progress_callback):
+            ghproxy_url = self.ctx.env_config.gh_proxy_url if self.ctx.env_config.is_gh_proxy else None
+            if not downloader.download(
+                proxy_url=proxy,
+                ghproxy_url=ghproxy_url,
+                skip_if_existed=False,
+                progress_signal=progress_signal,
+                progress_callback=progress_callback,
+            ):
+                if progress_signal is not None and progress_signal.get('signal') == 'cancel':
+                    return False, gt('下载已取消')
                 return False, gt('下载 GitHub 更新失败')
+
+            if progress_signal is not None and progress_signal.get('signal') == 'cancel':
+                return False, gt('下载已取消')
 
             if progress_callback is not None:
                 progress_callback(1, gt('正在解压更新包'))
@@ -138,17 +156,18 @@ class GithubUpdateService:
         )
         return urllib.request.build_opener(proxy_handler)
 
-    def _build_download_url(self, latest_tag: str, release_zip_name: str) -> str:
+    def _get_downloader_param(self, latest_tag: str, update_dir: Path) -> CommonDownloaderParam:
+        release_zip_name = f'{RELEASE_ZIP_PREFIX}-{latest_tag}.zip'
         download_url = (
             f'{self.ctx.project_config.github_homepage}'
             f'/releases/download/{latest_tag}/{release_zip_name}'
         )
-        return self._with_gh_proxy(download_url)
 
-    def _with_gh_proxy(self, url: str) -> str:
-        if not self.ctx.env_config.is_gh_proxy:
-            return url
-        return f'{self.ctx.env_config.gh_proxy_url.rstrip("/")}/{url}'
+        return CommonDownloaderParam(
+            save_file_path=str(update_dir),
+            save_file_name=release_zip_name,
+            github_release_download_url=download_url,
+        )
 
     def _extract_release(self, zip_path: Path, stage_dir: Path) -> None:
         stage_root = stage_dir.resolve()
