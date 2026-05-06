@@ -1,33 +1,28 @@
 import copy
 import os
+import shutil
 
 import yaml
 
 from one_dragon.utils import yaml_utils
 from one_dragon.utils.log_utils import log
 
-cached_yaml_data: dict[str, tuple[float, dict]] = {}
+cached_yaml_data: dict[str, tuple[float, dict | list]] = {}
 
 
-def _validate_yaml_data(file_path: str, data) -> dict:
-    if data is None:
-        return {}
-    if not isinstance(data, dict):
-        raise TypeError(
-            f"YAML root must be a dict in {file_path}, got {type(data).__name__}"
-        )
-    return data
-
-
-def read_cache_or_load(file_path: str) -> dict:
+def read_cache_or_load(file_path: str) -> dict | list:
     cached = cached_yaml_data.get(file_path)
     last_modify = os.path.getmtime(file_path)
     if cached is not None and cached[0] == last_modify:
         return copy.deepcopy(cached[1])
 
-    with open(file_path, encoding='utf-8') as file:
+    with open(file_path, encoding="utf-8") as file:
         log.debug(f"加载yaml: {file_path}")
-        data = _validate_yaml_data(file_path, yaml_utils.safe_load(file))
+        data = yaml_utils.safe_load(file)
+        if data is None:
+            data = {}
+        if not isinstance(data, dict | list):
+            raise TypeError(f"YAML root must be a dict or list: {file_path}")
         cached_yaml_data[file_path] = (last_modify, data)
         return copy.deepcopy(data)
 
@@ -49,7 +44,13 @@ class YamlOperator:
         self.file_path: str | None = file_path
         """yml文件的路径"""
 
-        self.data: dict = {}
+        self._write_file_path: str | None = file_path
+        """实际写入路径 兼容 onedir 下读写路径分离"""
+
+        self._copy_on_write_source_path: str | None = None
+        """首次写入前需要复制到写入路径的来源文件"""
+
+        self.data: dict | list = {}
         """存放数据的地方"""
 
         self.__read_from_file()
@@ -73,13 +74,42 @@ class YamlOperator:
         if self.data is None:
             self.data = {}
 
+    def _ensure_write_path_ready(self) -> bool:
+        write_path = self._get_write_path()
+        if write_path is None:
+            return False
+
+        parent_dir = os.path.dirname(write_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        if self._copy_on_write_source_path is not None and not os.path.exists(write_path):
+            shutil.copyfile(self._copy_on_write_source_path, write_path)
+
+        self._copy_on_write_source_path = None
+        return True
+
+    def _get_write_path(self) -> str | None:
+        if self._copy_on_write_source_path is None:
+            return self.file_path if self.file_path is not None else self._write_file_path
+        return self._write_file_path if self._write_file_path is not None else self.file_path
+
     def save(self):
-        if self.file_path is None:
+        if not self._ensure_write_path_ready():
             return
 
-        with open(self.file_path, 'w', encoding='utf-8') as file:
+        write_path = self._get_write_path()
+        if write_path is None:
+            return
+
+        with open(write_path, 'w', encoding='utf-8') as file:
             yaml.dump(self.data, file, allow_unicode=True, sort_keys=False)
-        invalidate_cache(self.file_path)
+        invalidate_cache(write_path)
+
+        if self.file_path != write_path:
+            self.file_path = write_path
+            if hasattr(self, 'old_file_path'):
+                self.old_file_path = write_path
 
     def save_diy(self, text: str):
         """
@@ -87,18 +117,29 @@ class YamlOperator:
         :param text: 自定义的文本
         :return:
         """
-        if self.file_path is None:
+        if not self._ensure_write_path_ready():
             return
 
-        with open(self.file_path, "w", encoding="utf-8") as file:
+        write_path = self._get_write_path()
+        if write_path is None:
+            return
+
+        with open(write_path, "w", encoding="utf-8") as file:
             file.write(text)
-        invalidate_cache(self.file_path)
+        invalidate_cache(write_path)
+
+        if self.file_path != write_path:
+            self.file_path = write_path
+            if hasattr(self, 'old_file_path'):
+                self.old_file_path = write_path
 
     def get(self, prop: str, value=None):
+        if not isinstance(self.data, dict):
+            return value
         return self.data.get(prop, value)
 
     def update(self, key: str, value, save: bool = True):
-        if self.data is None:
+        if not isinstance(self.data, dict):
             self.data = {}
         if key in self.data and not isinstance(value, list) and self.data[key] == value:
             return
