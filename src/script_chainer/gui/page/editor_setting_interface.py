@@ -17,6 +17,7 @@ from one_dragon.custom.custom_config import ThemeEnum
 from one_dragon.envs.env_config import ProxyTypeEnum
 from one_dragon.utils import os_utils
 from one_dragon.utils.i18_utils import gt
+from one_dragon.utils.log_utils import log
 from one_dragon_qt.services.theme_manager import ThemeManager
 from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
@@ -72,20 +73,24 @@ class GithubUpdateChecker(QThread):
             latest_stable, latest_beta = self.ctx.github_update_service.get_latest_tags()
             self.check_finished.emit(True, latest_stable, latest_beta, '')
         except Exception as e:
+            log.error('检查 GitHub 更新失败', exc_info=True)
             self.check_finished.emit(False, '', '', str(e))
 
 
 class GhProxyUpdateRunner(QThread):
 
-    update_finished = Signal(str)
+    update_finished = Signal(bool, str)
 
     def __init__(self, ctx: ScriptChainerContext):
         QThread.__init__(self)
         self.ctx = ctx
 
     def run(self) -> None:
-        self.ctx.gh_proxy_service.update_proxy_url()
-        self.update_finished.emit(self.ctx.env_config.gh_proxy_url)
+        success = False
+        try:
+            success = self.ctx.gh_proxy_service.update_proxy_url()
+        finally:
+            self.update_finished.emit(success, self.ctx.env_config.gh_proxy_url)
 
 
 class GithubUpdateCard(MultiPushSettingCard):
@@ -259,6 +264,7 @@ class EditorSettingInterface(VerticalScrollInterface):
 
     def __init__(self, ctx: ScriptChainerContext, parent=None):
         self.ctx: ScriptChainerContext = ctx
+        self._gh_proxy_auto_refreshed = False
         self.gh_proxy_update_runner = GhProxyUpdateRunner(ctx)
         self.gh_proxy_update_runner.update_finished.connect(self._on_gh_proxy_update_finished)
 
@@ -396,6 +402,8 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.start_gh_proxy_url_refresh()
 
     def refresh_gh_proxy_url_by_config(self) -> None:
+        if self._gh_proxy_auto_refreshed:
+            return
         if not self.ctx.env_config.auto_fetch_gh_proxy_url:
             return
         if self.ctx.env_config.proxy_type != ProxyTypeEnum.GHPROXY.value.value:
@@ -408,8 +416,9 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.fetch_gh_proxy_url_btn.setDisabled(True)
         self.gh_proxy_update_runner.start()
 
-    def _on_gh_proxy_update_finished(self, _proxy_url: str) -> None:
-        self.gh_proxy_url_opt.setValue(_proxy_url, emit_signal=False)
+    def _on_gh_proxy_update_finished(self, success: bool, proxy_url: str) -> None:
+        self._gh_proxy_auto_refreshed = success
+        self.gh_proxy_url_opt.setValue(proxy_url, emit_signal=False)
         self.fetch_gh_proxy_url_btn.setEnabled(True)
 
     def update_proxy_ui(self) -> None:
