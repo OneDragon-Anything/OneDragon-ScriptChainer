@@ -136,19 +136,22 @@ jobs:
         cd deploy
         pyinstaller "OneDragon ScriptChainer.spec"
         pyinstaller "OneDragon ScriptChainer Runner.spec"
+        Copy-Item "dist/OneDragon ScriptChainer Runner.exe" -Destination "dist/OneDragon ScriptChainer/" -Force
 
     - name: Upload Editor
       if: ${{ env.CREATE_RELEASE == 'false' }}
       uses: actions/upload-artifact@v4
       with:
-        name: Editor
-        path: deploy/dist/OneDragon ScriptChainer.exe
+        name: Editor-r${{ github.run_number }}
+        include-hidden-files: true
+        path: deploy/dist/OneDragon ScriptChainer/
 
     - name: Upload Runner
       if: ${{ env.CREATE_RELEASE == 'false' }}
       uses: actions/upload-artifact@v4
       with:
-        name: Runner
+        name: Runner-r${{ github.run_number }}
+        include-hidden-files: true
         path: deploy/dist/OneDragon ScriptChainer Runner.exe
 
     - name: Upload Dist
@@ -156,8 +159,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: dist
+        include-hidden-files: true
         if-no-files-found: error
-        path: deploy/dist
+        path: deploy/dist/OneDragon ScriptChainer/
 
   release:
     runs-on: windows-latest
@@ -173,7 +177,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: dist
-        path: .
+        path: OneDragon ScriptChainer
 
     - name: Prepare release packages
       shell: pwsh
@@ -182,8 +186,7 @@ jobs:
       run: |
         $version = $env:RELEASE_VERSION
 
-        # 在根目录打包两个 exe
-        Compress-Archive -Path "OneDragon ScriptChainer.exe","OneDragon ScriptChainer Runner.exe" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
+        Compress-Archive -Path "OneDragon ScriptChainer" -DestinationPath "OneDragon-ScriptChainer-$version.zip" -Force
 
 
     - name: Generate Changelog
@@ -310,9 +313,11 @@ jobs:
           ### 使用方法
 
           1. 下载 `OneDragon-ScriptChainer-${{ needs.build.outputs.version }}.zip`
-          2. 解压到任意目录
+          2. 设置中可以自更新。如需手动更新，请先删除旧版的 `.runtime` 文件夹，再解压覆盖
           3. 运行 `OneDragon ScriptChainer.exe` 创建和编辑脚本链
           4. 运行 `OneDragon ScriptChainer Runner.exe` 执行脚本链
+
+          > 注意：`OneDragon ScriptChainer.exe` 所在目录包含运行时依赖（`.runtime` 文件夹），请勿单独移动该文件。
 
           ### 命令行参数
 

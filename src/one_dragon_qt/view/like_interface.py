@@ -36,13 +36,14 @@ class LikeInterface(VerticalScrollInterface):
                                  url='https://one-dragon.com/other/zh/like/like.html')
         content.add_widget(cafe_opt)
 
-        img_label = ImageLabel()
-        img = cv2_utils.read_image(os.path.join(os_utils.get_path_under_work_dir('assets', 'ui'), 'sponsor_wechat.png'))
-        image = Cv2Image(img)
-        img_label.setImage(image)
-        img_label.setFixedWidth(250)
-        img_label.setFixedHeight(250)
-        content.add_widget(img_label)
+        img = cv2_utils.read_image(os_utils.get_resource_path('assets', 'ui', 'sponsor_wechat.png'))
+        if img is not None:
+            img_label = ImageLabel()
+            image = Cv2Image(img)
+            img_label.setImage(image)
+            img_label.setFixedWidth(250)
+            img_label.setFixedHeight(250)
+            content.add_widget(img_label)
 
         content.add_stretch(1)
         return content
