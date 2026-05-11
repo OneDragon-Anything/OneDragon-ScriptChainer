@@ -1,7 +1,7 @@
 import json
 
 from PySide6.QtWidgets import QWidget
-from qfluentwidgets import FluentIcon, InfoBar, InfoBarPosition, PushButton, SettingCard
+from qfluentwidgets import FluentIcon, InfoBar, InfoBarPosition, PushButton
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.base.controller.pc_clipboard import PcClipboard
@@ -35,7 +35,6 @@ from one_dragon_qt.widgets.setting_card.multi_push_setting_card import (
 )
 from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
-from one_dragon_qt.widgets.setting_card.yaml_config_adapter import YamlConfigAdapter
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 
 
@@ -103,9 +102,12 @@ class SettingPushInterface(VerticalScrollInterface):
         )
         self.notification_method_opt.value_changed.connect(self._update_notification_ui)
 
-        channel_group = ExpandSettingCardGroup(icon=FluentIcon.MESSAGE, title='通知方式')
+        channel_group = ExpandSettingCardGroup(
+            icon=FluentIcon.MESSAGE,
+            title='通知方式',
+            initial_expand=True,
+        )
         channel_group.addHeaderWidget(self.notification_method_opt.combo_box)
-        channel_group.setExpand(True)
         content_widget.add_widget(channel_group)
 
         # 预创建特殊卡片（稍后按渠道分配）
@@ -273,17 +275,17 @@ class SettingPushInterface(VerticalScrollInterface):
             smtp_port = config.get("port", 465)
             smtp_ssl = str(config.get("secure", True)).lower() if "secure" in config else "true"
             # 找到对应的TextSettingCard并赋值
-            server_card: SettingCard = getattr(self, "smtp_server_push_card", None)
+            server_card = getattr(self, "smtp_server_push_card", None)
             if server_card is not None:
                 host = f"{smtp_server}:{smtp_port}"
                 server_card.setValue(host)
-                adapter: YamlConfigAdapter = getattr(server_card, "adapter", None)
+                adapter = getattr(server_card, "adapter", None)
                 if adapter is not None:
                     adapter.set_value(host)
-            ssl_card: SettingCard = getattr(self, "smtp_ssl_push_card", None)
+            ssl_card = getattr(self, "smtp_ssl_push_card", None)
             if ssl_card is not None:
                 ssl_card.setValue(smtp_ssl)
-                adapter: YamlConfigAdapter = getattr(ssl_card, "adapter", None)
+                adapter = getattr(ssl_card, "adapter", None)
                 if adapter is not None:
                     adapter.set_value(smtp_ssl)
 

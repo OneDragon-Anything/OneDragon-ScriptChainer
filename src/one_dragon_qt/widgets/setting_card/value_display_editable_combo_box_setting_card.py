@@ -51,10 +51,9 @@ class ValueDisplayEditableComboBoxSettingCard(EditableComboBoxSettingCard):
         self.display_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self.display_label.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents
-        )
+        self.display_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.display_label.hide()
+        self.display_label.mousePressEvent = self._on_display_label_mouse_press
 
         drop_button_index = self.combo_box.hBoxLayout.indexOf(self.combo_box.dropButton)
         self.combo_box.hBoxLayout.insertWidget(
@@ -134,9 +133,6 @@ class ValueDisplayEditableComboBoxSettingCard(EditableComboBoxSettingCard):
         self._update_desc()
 
     def _sync_display_name(self, value: object) -> None:
-        if not hasattr(self, 'display_label'):
-            return
-
         display = ''
         for item in self._opts_list:
             if item.value == value:
@@ -188,3 +184,7 @@ class ValueDisplayEditableComboBoxSettingCard(EditableComboBoxSettingCard):
             if item.ui_text == text:
                 return str(item.value)
         return text
+
+    def _on_display_label_mouse_press(self, event) -> None:
+        self.combo_box._toggleComboMenu()
+        event.accept()
