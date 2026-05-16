@@ -50,6 +50,10 @@ from pathlib import Path
 import psutil
 
 from one_dragon.utils.encoding_utils import decode_bytes, get_console_encoding
+from script_chainer.utils.process_name_utils import (
+    normalize_process_names,
+    process_name_equals,
+)
 from script_chainer.utils.process_utils import graceful_kill_popen, graceful_kill_psutil
 
 # Windows 下隐藏控制台窗口的标志
@@ -117,7 +121,7 @@ def match_process(proc: psutil.Process, target: ProcessInfo) -> bool:
     try:
         if target.pid is not None and proc.pid != target.pid:
             return False
-        if target.name is not None and proc.name() != target.name:
+        if target.name is not None and not process_name_equals(proc.name(), target.name):
             return False
         if target.exe is not None:
             try:
@@ -132,38 +136,59 @@ def match_process(proc: psutil.Process, target: ProcessInfo) -> bool:
     return True
 
 
-def find_process_by_info(target: ProcessInfo) -> psutil.Process | None:
-    """根据 ProcessInfo 查找第一个匹配的进程。
+def find_process_by_infos(
+    targets: list[ProcessInfo],
+    exclude_pids: set[int] | None = None,
+) -> psutil.Process | None:
+    """根据多个 ProcessInfo 条件查找第一个匹配的进程。"""
+    if not targets:
+        return None
 
-    Args:
-        target: 目标进程匹配条件。
-
-    Returns:
-        匹配的进程对象，未找到返回 None。
-    """
+    excluded = exclude_pids or set()
     for proc in psutil.process_iter(['pid', 'name']):
         try:
-            if match_process(proc, target):
-                return proc
+            if proc.pid in excluded:
+                continue
+            for target in targets:
+                if match_process(proc, target):
+                    return proc
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
     return None
 
 
-def is_process_existed(process_name: str | None) -> bool:
+def collect_matching_process_pids(targets: list[ProcessInfo]) -> set[int]:
+    """收集当前已存在的候选进程 PID，用于启动后的全局搜索去重。"""
+    matched: set[int] = set()
+    if not targets:
+        return matched
+
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            for target in targets:
+                if match_process(proc, target):
+                    matched.add(proc.pid)
+                    break
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return matched
+
+
+def build_process_infos(process_name: str | list[str] | None) -> list[ProcessInfo]:
+    """将配置中的进程名转换为多个可匹配的 ProcessInfo。"""
+    return [ProcessInfo(name=name) for name in normalize_process_names(process_name)]
+
+
+def is_process_existed(process_name: str | list[str] | None) -> bool:
     """判断指定名称的进程是否存在。
 
     Args:
-        process_name: 进程名称。
+        process_name: 进程名称列表。
 
     Returns:
         进程是否存在。
     """
-    if not process_name:
-        return False
-    if sys.platform == 'win32' and not process_name.endswith('.exe'):
-        process_name = f'{process_name}.exe'
-    return find_process_by_info(ProcessInfo(name=process_name)) is not None
+    return find_process_by_infos(build_process_infos(process_name)) is not None
 
 
 class ProcessManager:
@@ -184,6 +209,7 @@ class ProcessManager:
         self.process: subprocess.Popen | None = None
         self.target_process: psutil.Process | None = None
         self._stdout_thread: threading.Thread | None = None
+        self._target_pid_snapshot: set[int] = set()
 
     @property
     def main_pid(self) -> int | None:
@@ -210,7 +236,7 @@ class ProcessManager:
         program: str,
         args: list[str] | None = None,
         cwd: str | None = None,
-        target_process: ProcessInfo | None = None,
+        target_process: list[ProcessInfo] | None = None,
         search_timeout: float = 60,
         stdout_callback: Callable[[str], None] | None = None,
     ) -> bool:
@@ -220,7 +246,7 @@ class ProcessManager:
             program: 可执行文件路径。
             args: 启动参数列表。
             cwd: 工作目录，默认为 program 所在目录。
-            target_process: 目标进程信息（用于追踪 launcher 启动的子进程）。
+            target_process: 目标进程信息列表（用于追踪 launcher 启动的子进程）。
             search_timeout: 搜索目标进程的超时时间（秒）。
             stdout_callback: 子进程输出回调，每行调用一次。为 None 时不捕获输出。
 
@@ -231,6 +257,9 @@ class ProcessManager:
             self.kill()
         else:
             self.clear()
+
+        if target_process is not None:
+            self._target_pid_snapshot = collect_matching_process_pids(target_process)
 
         command = [program]
         if args:
@@ -279,7 +308,7 @@ class ProcessManager:
 
     def search_process(
         self,
-        target: ProcessInfo,
+        target: list[ProcessInfo],
         timeout: float = 60,
         poll_interval: float = 0.5,
     ) -> bool:
@@ -288,7 +317,7 @@ class ProcessManager:
         优先从已启动子进程的进程树中搜索，找不到时再进行全局搜索。
 
         Args:
-            target: 目标进程信息。
+            target: 目标进程信息列表。
             timeout: 超时时间（秒）。
             poll_interval: 轮询间隔（秒）。
 
@@ -306,18 +335,21 @@ class ProcessManager:
             found = self._search_in_children(target)
             if found is None:
                 # fallback: 全局搜索
-                found = find_process_by_info(target)
+                found = find_process_by_infos(
+                    target,
+                    exclude_pids=self._target_pid_snapshot,
+                )
             if found is not None:
                 self.target_process = found
                 return True
             time.sleep(poll_interval)
         return False
 
-    def _search_in_children(self, target: ProcessInfo) -> psutil.Process | None:
+    def _search_in_children(self, targets: list[ProcessInfo]) -> psutil.Process | None:
         """从已启动子进程的后代中搜索匹配的目标进程。
 
         Args:
-            target: 目标进程匹配条件。
+            targets: 目标进程匹配条件列表。
 
         Returns:
             匹配的进程对象，未找到返回 None。
@@ -328,8 +360,9 @@ class ProcessManager:
             parent = psutil.Process(self.process.pid)
             for child in parent.children(recursive=True):
                 with suppress(psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    if match_process(child, target):
-                        return child
+                    for target in targets:
+                        if match_process(child, target):
+                            return child
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
         return None
@@ -399,6 +432,7 @@ class ProcessManager:
         self.process = None
         self.target_process = None
         self._stdout_thread = None
+        self._target_pid_snapshot = set()
 
     # ------------------------------------------------------------------
     # Windows Job Object — 父进程退出时自动清理所有子进程

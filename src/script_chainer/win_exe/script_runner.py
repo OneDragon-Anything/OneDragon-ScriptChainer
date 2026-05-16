@@ -11,6 +11,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePath
+from typing import TextIO
 
 from colorama import Fore, Style, init
 
@@ -27,10 +28,15 @@ from script_chainer.services.process_manager import (
     LauncherExitError,
     ProcessInfo,
     ProcessManager,
-    find_process_by_info,
+    build_process_infos,
+    find_process_by_infos,
     is_process_existed,
 )
 from script_chainer.utils.console_close_utils import force_exit_on_console_close
+from script_chainer.utils.process_name_utils import (
+    normalize_process_names,
+    process_name_equals,
+)
 from script_chainer.utils.runtime_group_utils import (
     build_runtime_selection,
     resolve_runtime_groups,
@@ -61,7 +67,7 @@ class _RunMonitorState:
 class _TeeWriter:
     """包装 stdout，将每行输出同时写入 LogNotifier。"""
 
-    def __init__(self, original: object, notifier: LogNotifier) -> None:
+    def __init__(self, original: TextIO, notifier: LogNotifier) -> None:
         self._original = original
         self._notifier = notifier
 
@@ -77,6 +83,25 @@ class _TeeWriter:
 
     def __getattr__(self, name: str):
         return getattr(self._original, name)
+
+
+def _get_target_process_infos(script_path: str, configured_process_name: list[str]) -> list[ProcessInfo]:
+    """获取需要追踪的目标进程列表。
+
+    若某个候选名称与启动文件同名，则它属于直接启动进程，
+    不应再作为 launcher 的追踪目标。
+    """
+    launcher_name = PurePath(script_path).name
+    return [
+        info
+        for info in build_process_infos(configured_process_name)
+        if info.name is not None and not process_name_equals(info.name, launcher_name)
+    ]
+
+
+def _format_process_hint(field_label: str, process_names: str | list[str] | None) -> str:
+    display = ' / '.join(normalize_process_names(process_names)) or '(空)'
+    return f'如长时间未检测到进程，请检查“{field_label}”填写是否正确：{display}'
 
 
 class _RunnerExitController:
@@ -175,6 +200,7 @@ def _make_stdout_callback(
 
 def _launch_script(
     script_config: ScriptConfig,
+    target_process_infos: list[ProcessInfo] | None = None,
     log_notifier: LogNotifier | None = None,
     state: _RunMonitorState | None = None,
 ) -> ProcessManager:
@@ -200,18 +226,13 @@ def _launch_script(
     if script_config.script_arguments and script_config.script_arguments.strip():
         args_list = shlex.split(script_config.script_arguments, posix=False)
 
-    # 如果配置了脚本进程名称，则追踪目标进程（launcher 场景）
-    target = None
-    if script_config.script_process_name:
-        target = ProcessInfo(name=script_config.script_process_name)
-
     pm = ProcessManager()
     try:
         display_name = script_config.game_display_name or script_config.script_display_name or PurePath(script_path).name
         success = pm.open_process(
             program=script_path,
             args=args_list,
-            target_process=target,
+            target_process=target_process_infos,
             search_timeout=30,
             stdout_callback=_make_stdout_callback(display_name, log_notifier, state),
         )
@@ -238,6 +259,7 @@ def _wait_for_subprocess_ready(
     state: _RunMonitorState,
     timeout: float = 20,
     expect_target: bool = False,
+    missing_process_hint: str | None = None,
 ) -> bool:
     """等待子进程就绪，确保进程已经成功启动并运行了一段时间。
 
@@ -246,6 +268,7 @@ def _wait_for_subprocess_ready(
         script_path: 脚本路径（用于日志）。
         timeout: 等待超时时间（秒）。
         expect_target: 是否期望追踪到目标进程（launcher 场景）。
+        missing_process_hint: 未找到目标进程时的提示语。
 
     Returns:
         子进程是否就绪。
@@ -287,21 +310,28 @@ def _wait_for_subprocess_ready(
         if _exit_controller.wait(1):
             break
 
+    if expect_target and missing_process_hint:
+        print_message(missing_process_hint, level='ERROR')
+
     return False
 
 
 def _monitor_script_done(
     script_config: ScriptConfig,
     state: _RunMonitorState,
+    pm: ProcessManager,
 ) -> None:
     """监控脚本运行状态，等待完成条件满足。
 
     Args:
         script_config: 脚本配置。
         state: 运行监控状态（跨 _wait_for_subprocess_ready 持久化的进程存在标志）。
+        pm: 当前脚本对应的进程管理器。
     """
     start_time = time.time()
     last_status: str = ''
+    game_hint_printed = False
+    script_hint_printed = False
 
     no_log_timeout = script_config.no_log_timeout_seconds
 
@@ -327,12 +357,37 @@ def _monitor_script_done(
         # 仅在状态变化时打印
         if status != last_status:
             print_message(status, level='PASS' if state.game_ever_existed else 'INFO')
+            if not state.game_ever_existed and not game_hint_printed and script_config.game_process_name:
+                print_message(
+                    _format_process_hint('游戏进程名称', script_config.game_process_name),
+                    level='INFO',
+                )
+                game_hint_printed = True
             last_status = status
 
         # 检查脚本进程状态
-        script_current_existed = is_process_existed(script_config.script_process_name)
+        if script_config.launcher_mode:
+            script_current_existed = is_process_existed(script_config.script_process_name)
+        else:
+            script_current_existed = pm.is_running()
         script_closed = state.script_ever_existed and not script_current_existed
         state.script_ever_existed = state.script_ever_existed or script_current_existed
+        if (
+            script_config.launcher_mode
+            and
+            not state.script_ever_existed
+            and not script_hint_printed
+            and script_config.script_process_name
+            and script_config.check_done in (
+                CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value,
+                CheckDoneMethods.SCRIPT_CLOSED.value.value,
+            )
+        ):
+            print_message(
+                _format_process_hint('启动后实际运行的程序', script_config.script_process_name),
+                level='INFO',
+            )
+            script_hint_printed = True
 
         # 判断完成条件
         if script_config.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value:
@@ -399,7 +454,7 @@ def _cleanup_processes(script_config: ScriptConfig, pm: ProcessManager, force_sc
         if game_name:
             print_message(f'尝试关闭游戏进程 {game_name}')
             try:
-                proc = find_process_by_info(ProcessInfo(name=game_name))
+                proc = find_process_by_infos(build_process_infos(game_name))
                 if proc is not None:
                     proc.terminate()
                     try:
@@ -442,19 +497,28 @@ def _run_script_once(
 
     script_path = script_config.script_path
     no_log_timeout = script_config.no_log_timeout_seconds
+    target_process_infos = None
+    if script_config.launcher_mode:
+        target_process_infos = _get_target_process_infos(
+            script_path,
+            script_config.script_process_name,
+        ) or None
 
     # 1. 启动脚本子进程
     state = _RunMonitorState()
-    pm = _launch_script(script_config, log_notifier, state)
+    pm = _launch_script(script_config, target_process_infos, log_notifier, state)
     _active_pm = pm
     try:
         # 2. 等待子进程就绪
-        # 仅当脚本进程名与启动文件名不同时才期望追踪目标进程（launcher 场景）
-        expect_target = (
-            bool(script_config.script_process_name)
-            and script_config.script_process_name.lower() != PurePath(script_path).name.lower()
-        )
-        if not _wait_for_subprocess_ready(pm, script_path, state, expect_target=expect_target):
+        # 仅在启动器模式下，且存在与启动文件不同名的候选进程时，才期望追踪目标进程
+        expect_target = bool(target_process_infos)
+        if not _wait_for_subprocess_ready(
+            pm,
+            script_path,
+            state,
+            expect_target=expect_target,
+            missing_process_hint=_format_process_hint('启动后实际运行的程序', script_config.script_process_name),
+        ):
             print_message(f'子进程创建失败 {script_path}', level='ERROR')
             pm.kill()
             return
@@ -465,7 +529,7 @@ def _run_script_once(
 
         # 3. 监控脚本运行状态
         try:
-            _monitor_script_done(script_config, state)
+            _monitor_script_done(script_config, state, pm)
         except _NoLogTimeoutError:
             _cleanup_processes(script_config, pm, force_script=True)
             raise

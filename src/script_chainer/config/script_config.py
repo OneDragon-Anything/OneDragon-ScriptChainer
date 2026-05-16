@@ -1,10 +1,15 @@
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from one_dragon.base.config.config_item import ConfigItem, get_config_item_from_enum
 from one_dragon.base.config.yaml_config import YamlConfig
+from script_chainer.utils.process_name_utils import (
+    normalize_process_name,
+    normalize_process_names,
+    process_name_equals,
+)
 
 
 class CheckDoneMethods(Enum):
@@ -14,16 +19,22 @@ class CheckDoneMethods(Enum):
     GAME_OR_SCRIPT_CLOSED = ConfigItem(label='游戏或脚本被关闭', value='game_or_script_closed', desc='游戏或脚本被关闭时 认为任务完成')
 
 
+class ScriptLaunchMethod(Enum):
+
+    DIRECT = ConfigItem(label='直接启动', value=False, desc='将自动监控脚本路径对应的程序，无需填写脚本进程名称')
+    LAUNCHER = ConfigItem(label='启动器启动', value=True, desc='脚本路径是启动器，需要填写启动后实际运行的目标进程')
+
+
 class ScriptProcessName(Enum):
 
-    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value='python.exe')
-    ONE_DRAGON_RUNTIME_LAUNCHER = ConfigItem(label='一条龙・集成', value='OneDragon-RuntimeLauncher.exe')
-    BGI = ConfigItem(label='BetterGI', value='BetterGI.exe')
-    March7th = ConfigItem(label='三月七小助手', value='March7th Assistant.exe')
-    MAA_BBB = ConfigItem(label='识宝小助手', value='MFAAvalonia.exe')
-    SRA = ConfigItem(label='StarRailAssistant', value='SRA-cli.exe')
-    MAA_END = ConfigItem(label='MaaEnd', value='MaaEnd.exe')
-    MAA_GF2 = ConfigItem(label='MaaGF2', value='MaaGF2Exilium.exe')
+    ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value=['python.exe', 'pythonw.exe'])
+    ONE_DRAGON_RUNTIME_LAUNCHER = ConfigItem(label='一条龙・集成', value=['OneDragon-RuntimeLauncher.exe'])
+    BGI = ConfigItem(label='BetterGI', value=['BetterGI.exe'])
+    March7th = ConfigItem(label='三月七小助手', value=['March7th Assistant.exe'])
+    MAA_BBB = ConfigItem(label='识宝小助手', value=['MFAAvalonia.exe'])
+    SRA = ConfigItem(label='StarRailAssistant', value=['SRA-cli.exe'])
+    MAA_END = ConfigItem(label='MaaEnd', value=['MaaEnd.exe'])
+    MAA_GF2 = ConfigItem(label='MaaGF2', value=['MaaGF2Exilium.exe'])
 
 
 class GameProcessName(Enum):
@@ -48,14 +59,77 @@ class AttachDirection:
     POST = 'post'
 
 
+def _find_process_config_item(enum_cls: type[Enum], process_names: list[str]) -> ConfigItem | None:
+    normalized = normalize_process_names(process_names)
+    for enum_item in enum_cls:
+        if (
+            isinstance(enum_item.value, ConfigItem)
+            and normalize_process_names(enum_item.value.value) == normalized
+        ):
+            return enum_item.value
+    return None
+
+
+def _migrate_legacy_script_process_names(process_names: str | list[str] | None) -> list[str]:
+    normalized = normalize_process_names(process_names)
+    if not normalized:
+        return []
+
+    matched = _find_process_config_item(ScriptProcessName, normalized)
+    if matched is not None:
+        return normalize_process_names(matched.value)
+
+    normalized_set = {name.lower() for name in normalized}
+    if normalized_set.issubset({'python.exe', 'pythonw.exe'}):
+        return normalize_process_names(ScriptProcessName.ONE_DRAGON_LAUNCHER.value.value)
+
+    return normalized
+
+
+def _normalize_game_process_name(process_name: object) -> str:
+    if isinstance(process_name, str):
+        return normalize_process_name(process_name)
+    return ''
+
+
+def _migrate_legacy_config_data(data: dict) -> dict:
+    """集中处理旧配置的兼容迁移。"""
+    normalized = dict(data)
+    normalized['script_process_name'] = _migrate_legacy_script_process_names(
+        normalized.get('script_process_name')
+    )
+    normalized['game_process_name'] = _normalize_game_process_name(
+        normalized.get('game_process_name', '')
+    )
+    normalized['launcher_mode'] = _infer_launcher_mode(
+        normalized,
+        normalized['script_process_name'],
+    )
+    return normalized
+
+
+def _infer_launcher_mode(data: dict, script_process_names: list[str]) -> bool:
+    if 'launcher_mode' in data:
+        return bool(data.get('launcher_mode'))
+
+    script_path = str(data.get('script_path') or '').strip()
+    if not script_path or not script_process_names:
+        return False
+
+    launch_name = PurePath(script_path).name
+    return any(not process_name_equals(name, launch_name) for name in script_process_names)
+
+
 @dataclass
 class ScriptConfig:
 
     display_name: str = ''
+    game_label: str = ''
     script_type: str = ScriptType.EXTERNAL
     script_path: str = ''
-    script_process_name: str = ''
+    script_process_name: list[str] = field(default_factory=list)
     game_process_name: str = ''
+    launcher_mode: bool = False
     run_timeout_seconds: int = 3600
     check_done: str = ''
     kill_script_after_done: bool = True
@@ -82,7 +156,10 @@ class ScriptConfig:
     def from_dict(cls, data: dict) -> 'ScriptConfig':
         """从字典反序列化。"""
         valid = {f.name for f in fields(cls)} - {'idx'}
-        return cls(**{k: v for k, v in data.items() if k in valid})
+        normalized = _migrate_legacy_config_data(
+            {k: v for k, v in data.items() if k in valid}
+        )
+        return cls(**normalized)
 
     @classmethod
     def create_default(cls) -> 'ScriptConfig':
@@ -114,8 +191,44 @@ class ScriptConfig:
 
     @property
     def game_display_name(self) -> str:
-        game_process_enum = [i for i in GameProcessName if i.value.value == self.game_process_name]
-        return game_process_enum[0].value.label if len(game_process_enum) > 0 else self.game_process_name
+        if self.game_label:
+            return self.game_label
+        config = get_config_item_from_enum(
+            GameProcessName,
+            normalize_process_name(self.game_process_name),
+        )
+        if config is not None:
+            return config.label
+        if self.game_process_name:
+            return self.game_process_name
+        return '自定义游戏'
+
+    @property
+    def script_process_display_name(self) -> str:
+        config = _find_process_config_item(ScriptProcessName, self.script_process_name)
+        if config is not None:
+            return config.label
+        return ' / '.join(normalize_process_names(self.script_process_name))
+
+    @property
+    def launch_program_name(self) -> str:
+        if not self.script_path:
+            return ''
+        return PurePath(self.script_path).name
+
+    @property
+    def launcher_mode_invalid_message(self) -> str | None:
+        if not self.launcher_mode:
+            return None
+        launch_name = self.launch_program_name
+        if not launch_name:
+            return None
+        if any(
+            process_name_equals(item, launch_name)
+            for item in normalize_process_names(self.script_process_name)
+        ):
+            return f'启动后实际运行的程序不能包含启动程序本体 {launch_name}'
+        return None
 
     @property
     def check_done_display_name(self) -> str:
@@ -144,16 +257,19 @@ class ScriptConfig:
                 (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
                  or self.check_done == CheckDoneMethods.GAME_CLOSED.value.value
                  or self.kill_game_after_done)
-              and (self.game_process_name is None or len(self.game_process_name) == 0)
+              and len(normalize_process_name(self.game_process_name)) == 0
         ):
             return '游戏进程名称为空'
         elif (
-                (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
-                 or self.check_done == CheckDoneMethods.SCRIPT_CLOSED.value.value
-                 or self.kill_script_after_done)
-                and (self.script_process_name is None or len(self.script_process_name) == 0)
+                self.launcher_mode
+                and (self.check_done == CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value
+                     or self.check_done == CheckDoneMethods.SCRIPT_CLOSED.value.value
+                     or self.kill_script_after_done)
+                and len(normalize_process_names(self.script_process_name)) == 0
         ):
-            return '脚本进程名称为空'
+            return '启动后实际运行的程序为空'
+        elif self.launcher_mode_invalid_message is not None:
+            return self.launcher_mode_invalid_message
         elif self.run_timeout_seconds <= 0:
             return '运行超时时间必须大于0'
 
@@ -168,11 +284,11 @@ class ScriptChainConfig(YamlConfig):
             is_mock=is_mock, sample=False, copy_from_sample=False,
         )
 
-        self.script_list: list[ScriptConfig] = [
-            ScriptConfig.from_dict(i)
-            for i in self.get('script_list', [])
-        ]
+        raw_script_list = self.get('script_list', [])
+        self.script_list = [ScriptConfig.from_dict(i) for i in raw_script_list]
         self.init_idx()
+        if raw_script_list != [i.to_dict() for i in self.script_list]:
+            self.save()
 
     def _get_script_chain_dir(self) -> Path:
         return Path(self.file_path).parent
