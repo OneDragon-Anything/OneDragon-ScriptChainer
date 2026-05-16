@@ -1,6 +1,6 @@
 import os
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, QObject, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
@@ -19,8 +19,14 @@ from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
     ComboBoxSettingCard,
 )
+from one_dragon_qt.widgets.setting_card.expand_setting_card_group import (
+    ExpandSettingCardGroup,
+)
 from one_dragon_qt.widgets.setting_card.multi_push_setting_card import (
     MultiPushSettingCard,
+)
+from one_dragon_qt.widgets.setting_card.multi_value_display_combo_box_setting_card import (
+    MultiValueDisplayComboBoxSettingCard,
 )
 from one_dragon_qt.widgets.setting_card.push_setting_card import PushSettingCard
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
@@ -34,6 +40,7 @@ from script_chainer.config.script_config import (
     ScriptConfig,
     ScriptProcessName,
 )
+from script_chainer.utils.process_name_utils import normalize_process_names
 
 
 class ScriptEditInterface(VerticalScrollInterface):
@@ -77,14 +84,33 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.script_path_opt.clicked.connect(self.on_script_path_clicked)
         content_widget.add_widget(self.script_path_opt)
 
-        self.script_process_name_opt = ValueDisplayEditableComboBoxSettingCard(
-            icon=FluentIcon.GAME,
-            title='脚本进程名称',
-            content='需要监听脚本关闭时填入',
-            options_enum=ScriptProcessName,
-            input_placeholder='选择或输入脚本进程名',
+        self.launch_advanced_group = ExpandSettingCardGroup(
+            icon=FluentIcon.COMMAND_PROMPT,
+            title='启动进阶',
+            content='默认直接监控脚本路径对应程序；只有启动器场景才需要修改',
+            initial_expand=bool(self.config.launcher_mode),
         )
-        content_widget.add_widget(self.script_process_name_opt)
+
+        self.launcher_mode_switch = SwitchButton()
+        self.launcher_mode_switch.setOnText('')
+        self.launcher_mode_switch.setOffText('')
+        self.launcher_mode_switch.setToolTip('启动后会再打开一个主程序')
+        self.launcher_mode_switch.checkedChanged.connect(self._on_launch_method_changed)
+        self.launcher_mode_switch.installEventFilter(self)
+        self.launch_advanced_group.addHeaderWidget(self.launcher_mode_switch)
+
+        self.script_process_name_opt = MultiValueDisplayComboBoxSettingCard(
+            icon=FluentIcon.GAME,
+            title='启动后实际运行的程序',
+            content='通常只填主程序；检测不到时再添加备用候选，可省略 .exe',
+            options_enum=ScriptProcessName,
+            input_placeholder='填写程序名，例如 BetterGI',
+            add_button_text='添加备用候选',
+            preset_placeholder='选择常见程序',
+        )
+        self.script_process_name_opt.value_changed.connect(self._on_script_process_names_changed)
+        self.launch_advanced_group.addSettingCard(self.script_process_name_opt)
+        content_widget.add_widget(self.launch_advanced_group)
 
         self.game_process_name_opt = ValueDisplayEditableComboBoxSettingCard(
             icon=FluentIcon.GAME,
@@ -221,6 +247,9 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.config = config.copy()
 
         self.script_path_opt.setContent(config.script_path)
+        self.launcher_mode_switch.blockSignals(True)
+        self.launcher_mode_switch.setChecked(config.launcher_mode)
+        self.launcher_mode_switch.blockSignals(False)
         self.script_process_name_opt.setValue(config.script_process_name, emit_signal=False)
         self.game_process_name_opt.setValue(config.game_process_name, emit_signal=False)
         self.run_timeout_seconds_opt.setValue(str(config.run_timeout_seconds), emit_signal=False)
@@ -254,6 +283,13 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.no_log_max_retries_input.setValue(max(1, config.no_log_max_retries))
         self.no_log_max_retries_input.blockSignals(False)
         self.no_log_max_retries_input.setEnabled(no_log_enabled)
+        self._sync_launch_method_ui()
+        self._sync_launch_advanced_summary()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is getattr(self, 'launcher_mode_switch', None):
+            event.accept()
+        return super().eventFilter(watched, event)
 
     def _on_notify_log_toggled(self, checked: bool) -> None:
         """日志推送开关切换时启用/禁用间隔输入框"""
@@ -274,14 +310,39 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.script_path_opt.setContent(file_path)
 
     def _get_editable_combo_value(self, card: ValueDisplayEditableComboBoxSettingCard) -> str:
-        """获取可编辑下拉框的值，优先取 itemData，否则取用户输入的文本"""
         val = card.getValue()
         return '' if val is None else str(val).strip()
+
+    def _on_launch_method_changed(self, _value: bool) -> None:
+        self._sync_launch_method_ui(sync_expand=True)
+        self._sync_launch_advanced_summary()
+
+    def _on_script_process_names_changed(self, *_args) -> None:
+        self._sync_launch_advanced_summary()
+
+    def _sync_launch_method_ui(self, sync_expand: bool = False) -> None:
+        launcher_mode = self.launcher_mode_switch.isChecked()
+        self.script_process_name_opt.setEnabled(launcher_mode)
+        if sync_expand and launcher_mode:
+            self.launch_advanced_group.setExpand(True)
+
+    def _sync_launch_advanced_summary(self, *_args) -> None:
+        config = self.get_config_value()
+        if config.launcher_mode:
+            target_name = config.script_process_display_name
+            if target_name:
+                summary = f'当前会等待启动后的主程序：{target_name}'
+            else:
+                summary = '已开启启动器场景；请填写启动后实际运行的程序'
+        else:
+            summary = '默认直接监控脚本路径对应程序；只有启动器场景才需要修改'
+        self.launch_advanced_group.card.setContent(summary)
 
     def get_config_value(self) -> ScriptConfig:
         config = self.config.copy()
         config.script_path = self.config.script_path
-        config.script_process_name = self._get_editable_combo_value(self.script_process_name_opt)
+        config.script_process_name = normalize_process_names(self.script_process_name_opt.getValue())
+        config.launcher_mode = self.launcher_mode_switch.isChecked()
         config.game_process_name = self._get_editable_combo_value(self.game_process_name_opt)
         config.run_timeout_seconds = int(self.run_timeout_seconds_opt.getValue())
         config.check_done = str(self.check_done_opt.getValue())
@@ -310,9 +371,15 @@ class ScriptEditInterface(VerticalScrollInterface):
         config = self.get_config_value()
         invalid_message = config.invalid_message
         if invalid_message is not None:
+            if invalid_message in ('启动后实际运行的程序为空', config.launcher_mode_invalid_message):
+                self.script_process_name_opt.set_error_message(invalid_message)
+                self.launch_advanced_group.setExpand(True)
+                self.error_label.hide()
+                return False
             self.error_label.setText(invalid_message)
             self.error_label.show()
             return False
         else:
+            self.script_process_name_opt.set_error_message(None)
             self.error_label.hide()
             return True
