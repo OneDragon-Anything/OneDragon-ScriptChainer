@@ -2,7 +2,7 @@ import os
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QDialog, QHBoxLayout
+from PySide6.QtWidgets import QHBoxLayout
 from qfluentwidgets import Dialog, FluentIcon, SwitchButton, TransparentToolButton
 
 from one_dragon.utils.os_utils import reveal_in_file_manager
@@ -89,7 +89,7 @@ class ScriptCardMixin:
 
     def _on_rename(self) -> None:
         dialog = ScriptRenameDialog(self.config.display_name, parent=self.window())
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        if dialog.exec():
             self.config.display_name = dialog.get_new_name()
             self._update_display()
             self.value_changed.emit(self.config)
@@ -330,7 +330,7 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
             initial_code=code,
             script_path=path,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        if dialog.exec():
             self.chain_config.save_python_script(self.config.idx, dialog.get_code())
             self._update_display()
 
