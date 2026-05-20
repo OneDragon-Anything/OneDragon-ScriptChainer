@@ -271,7 +271,9 @@ class MultiValueDisplayComboBoxSettingCard(SettingCardBase, AdapterInitMixin):
         finally:
             self.setUpdatesEnabled(True)
 
-        if not emit_signal:
+        if emit_signal:
+            self._on_value_changed()
+        else:
             self._block_signals(False)
 
     def set_error_message(self, message: str | None) -> None:
