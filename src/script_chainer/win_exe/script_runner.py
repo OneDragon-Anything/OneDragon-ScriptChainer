@@ -299,6 +299,7 @@ def _wait_for_subprocess_ready(
                         # launcher 退出但目标进程未就绪，继续等待
                         print_message(f'启动器已退出 (rc=0)，等待目标进程 {script_path}')
                     else:
+                        state.script_ever_existed = True
                         print_message(f'启动器已退出 (rc=0) {script_path}')
                         return True
                 else:
@@ -366,10 +367,7 @@ def _monitor_script_done(
             last_status = status
 
         # 检查脚本进程状态
-        if script_config.launcher_mode:
-            script_current_existed = is_process_existed(script_config.script_process_name)
-        else:
-            script_current_existed = pm.is_running()
+        script_current_existed = pm.is_running()
         script_closed = state.script_ever_existed and not script_current_existed
         state.script_ever_existed = state.script_ever_existed or script_current_existed
         if (
