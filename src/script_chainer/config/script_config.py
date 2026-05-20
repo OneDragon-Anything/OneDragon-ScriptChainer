@@ -28,13 +28,6 @@ class ScriptLaunchMethod(Enum):
 class ScriptProcessName(Enum):
 
     ONE_DRAGON_LAUNCHER = ConfigItem(label='一条龙', value=['python.exe', 'pythonw.exe'])
-    ONE_DRAGON_RUNTIME_LAUNCHER = ConfigItem(label='一条龙・集成', value=['OneDragon-RuntimeLauncher.exe'])
-    BGI = ConfigItem(label='BetterGI', value=['BetterGI.exe'])
-    March7th = ConfigItem(label='三月七小助手', value=['March7th Assistant.exe'])
-    MAA_BBB = ConfigItem(label='识宝小助手', value=['MFAAvalonia.exe'])
-    SRA = ConfigItem(label='StarRailAssistant', value=['SRA-cli.exe'])
-    MAA_END = ConfigItem(label='MaaEnd', value=['MaaEnd.exe'])
-    MAA_GF2 = ConfigItem(label='MaaGF2', value=['MaaGF2Exilium.exe'])
 
 
 class GameProcessName(Enum):
