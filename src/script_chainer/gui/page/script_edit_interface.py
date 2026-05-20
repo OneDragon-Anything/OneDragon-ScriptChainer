@@ -327,9 +327,11 @@ class ScriptEditInterface(VerticalScrollInterface):
             self.launch_advanced_group.setExpand(True)
 
     def _sync_launch_advanced_summary(self, *_args) -> None:
-        config = self.get_config_value()
-        if config.launcher_mode:
-            target_name = config.script_process_display_name
+        launcher_mode = self.launcher_mode_switch.isChecked()
+        target_name = ' / '.join(
+            normalize_process_names(self.script_process_name_opt.getValue())
+        )
+        if launcher_mode:
             if target_name:
                 summary = f'当前会等待启动后的主程序：{target_name}'
             else:
@@ -376,6 +378,7 @@ class ScriptEditInterface(VerticalScrollInterface):
                 self.launch_advanced_group.setExpand(True)
                 self.error_label.hide()
                 return False
+            self.script_process_name_opt.set_error_message(None)
             self.error_label.setText(invalid_message)
             self.error_label.show()
             return False
