@@ -1,7 +1,7 @@
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
-from pathlib import Path, PurePath
+from pathlib import Path, PureWindowsPath
 
 from one_dragon.base.config.config_item import ConfigItem, get_config_item_from_enum
 from one_dragon.base.config.yaml_config import YamlConfig
@@ -85,8 +85,8 @@ def _normalize_game_process_name(process_name: object) -> str:
     return ''
 
 
-def _migrate_legacy_config_data(data: dict) -> dict:
-    """集中处理旧配置的兼容迁移。"""
+def _migrate_legacy_script_config_data(data: dict) -> dict:
+    """将旧版脚本配置迁移到当前结构。"""
     normalized = dict(data)
     normalized['script_process_name'] = _migrate_legacy_script_process_names(
         normalized.get('script_process_name')
@@ -101,15 +101,33 @@ def _migrate_legacy_config_data(data: dict) -> dict:
     return normalized
 
 
+def _migrate_legacy_script_list(raw_script_list: object) -> tuple[list[dict], bool]:
+    """迁移脚本列表配置，返回迁移后的数据和是否发生变更。"""
+    if not isinstance(raw_script_list, list):
+        return [], raw_script_list != []
+
+    migrated: list[dict] = []
+    changed = False
+    for raw_item in raw_script_list:
+        if not isinstance(raw_item, dict):
+            changed = True
+            continue
+        migrated_item = _migrate_legacy_script_config_data(raw_item)
+        if migrated_item != raw_item:
+            changed = True
+        migrated.append(migrated_item)
+    return migrated, changed
+
+
 def _infer_launcher_mode(data: dict, script_process_names: list[str]) -> bool:
     if 'launcher_mode' in data:
-        return bool(data.get('launcher_mode'))
+        return data.get('launcher_mode') is True
 
     script_path = str(data.get('script_path') or '').strip()
     if not script_path or not script_process_names:
         return False
 
-    launch_name = PurePath(script_path).name
+    launch_name = PureWindowsPath(script_path).name
     return any(not process_name_equals(name, launch_name) for name in script_process_names)
 
 
@@ -146,15 +164,6 @@ class ScriptConfig:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ScriptConfig':
-        """从字典反序列化。"""
-        valid = {f.name for f in fields(cls)} - {'idx'}
-        normalized = _migrate_legacy_config_data(
-            {k: v for k, v in data.items() if k in valid}
-        )
-        return cls(**normalized)
-
-    @classmethod
     def create_default(cls) -> 'ScriptConfig':
         """创建默认配置。"""
         return cls(check_done=CheckDoneMethods.GAME_OR_SCRIPT_CLOSED.value.value)
@@ -170,7 +179,7 @@ class ScriptConfig:
 
     def copy(self) -> 'ScriptConfig':
         """深拷贝（保留 idx）。"""
-        new = self.from_dict(self.to_dict())
+        new = ScriptConfig(**self.to_dict())
         new.idx = self.idx
         return new
 
@@ -207,7 +216,7 @@ class ScriptConfig:
     def launch_program_name(self) -> str:
         if not self.script_path:
             return ''
-        return PurePath(self.script_path).name
+        return PureWindowsPath(self.script_path).name
 
     @property
     def launcher_mode_invalid_message(self) -> str | None:
@@ -269,6 +278,16 @@ class ScriptConfig:
 
 class ScriptChainConfig(YamlConfig):
 
+    _script_config_fields = {f.name for f in fields(ScriptConfig)} - {'idx'}
+
+    @classmethod
+    def _load_script_config(cls, data: dict) -> ScriptConfig:
+        return ScriptConfig(**{
+            k: v
+            for k, v in data.items()
+            if k in cls._script_config_fields
+        })
+
     def __init__(self, module_name: str, is_mock: bool = False):
         YamlConfig.__init__(
             self,
@@ -278,9 +297,13 @@ class ScriptChainConfig(YamlConfig):
         )
 
         raw_script_list = self.get('script_list', [])
-        self.script_list = [ScriptConfig.from_dict(i) for i in raw_script_list]
+        migrated_script_list, migrated = _migrate_legacy_script_list(raw_script_list)
+        self.script_list = [
+            self._load_script_config(i)
+            for i in migrated_script_list
+        ]
         self.init_idx()
-        if raw_script_list != [i.to_dict() for i in self.script_list]:
+        if migrated or migrated_script_list != [i.to_dict() for i in self.script_list]:
             self.save()
 
     def _get_script_chain_dir(self) -> Path:

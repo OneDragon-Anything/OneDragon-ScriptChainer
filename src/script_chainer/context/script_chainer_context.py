@@ -29,11 +29,23 @@ class ScriptChainerContext:
             return
 
         try:
+            self.migrate_script_chain_configs()
             self.push_service.init_push_channels()
         except Exception:
             log.error('初始化出错', exc_info=True)
         finally:
             self._init_lock.release()
+
+    def migrate_script_chain_configs(self) -> None:
+        """启动时触发所有脚本链配置的一次性迁移。"""
+        config_dir = self.script_chain_config_dir()
+        if not os.path.isdir(config_dir):
+            return
+
+        for file_name in os.listdir(config_dir):
+            if not file_name.endswith('.yml'):
+                continue
+            ScriptChainConfig(module_name=file_name[:-4])
 
     def get_all_script_chain_config(self) -> list[ScriptChainConfig]:
         config_list: list[ScriptChainConfig] = []
