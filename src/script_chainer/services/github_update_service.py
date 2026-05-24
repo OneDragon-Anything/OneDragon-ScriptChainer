@@ -95,12 +95,26 @@ class GithubUpdateService:
             return False, f"{gt('准备 GitHub 更新失败')}: {e}"
 
     def get_latest_tags(self) -> tuple[str, str]:
-        stable_tag = self.get_latest_tag()
+        stable_tag = ''
+        stable_error: Exception | None = None
+        try:
+            stable_tag = self.get_latest_tag()
+        except Exception as e:
+            stable_error = e
+            log.error('获取 GitHub 最新正式版失败', exc_info=True)
+
+        beta_tag = ''
+        beta_error: Exception | None = None
         try:
             beta_tag = self.get_latest_beta_tag()
-        except Exception:
+        except Exception as e:
+            beta_error = e
             log.error('获取 GitHub 最新测试版失败', exc_info=True)
-            beta_tag = ''
+
+        if not stable_tag and not beta_tag:
+            raise RuntimeError(
+                f'获取 GitHub 最新版本失败: stable={stable_error}; beta={beta_error}'
+            )
         return stable_tag, beta_tag
 
     def get_latest_tag(self) -> str:
