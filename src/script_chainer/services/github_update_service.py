@@ -266,17 +266,40 @@ class GithubUpdateService:
                 f'$Backup = {self._ps_quote(str(backup_path))}',
                 'if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Recurse -Force }',
                 'if (Test-Path -LiteralPath $Target) { Move-Item -LiteralPath $Target -Destination $Backup -Force }',
-                'try {',
+            ])
+
+        lines.append('try {')
+        for item_path in update_items:
+            target_path = work_dir / item_path.name
+            lines.extend([
+                f'    $Source = {self._ps_quote(str(item_path))}',
+                f'    $Target = {self._ps_quote(str(target_path))}',
                 '    Move-Item -LiteralPath $Source -Destination $Target -Force',
+            ])
+        for item_path in update_items:
+            backup_path = work_dir / f'{item_path.name}.bak'
+            lines.extend([
+                f'    $Backup = {self._ps_quote(str(backup_path))}',
                 '    if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Recurse -Force }',
-                '} catch {',
+            ])
+        lines.append('} catch {')
+        for item_path in update_items:
+            target_path = work_dir / item_path.name
+            backup_path = work_dir / f'{item_path.name}.bak'
+            lines.extend([
+                f'    $Target = {self._ps_quote(str(target_path))}',
+                f'    $Backup = {self._ps_quote(str(backup_path))}',
                 '    if (Test-Path -LiteralPath $Backup) {',
                 '        if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }',
                 '        Move-Item -LiteralPath $Backup -Destination $Target -Force',
+                '    } elseif (Test-Path -LiteralPath $Target) {',
+                '        Remove-Item -LiteralPath $Target -Recurse -Force',
                 '    }',
-                '    throw',
-                '}',
             ])
+        lines.extend([
+            '    throw',
+            '}',
+        ])
 
         lines.extend([
             'Start-Process -FilePath $CurrentExe -WorkingDirectory $WorkDir',
