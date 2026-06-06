@@ -84,7 +84,13 @@ class YamlOperator:
             os.makedirs(parent_dir, exist_ok=True)
 
         if self._copy_on_write_source_path is not None and not os.path.exists(write_path):
-            shutil.copyfile(self._copy_on_write_source_path, write_path)
+            try:
+                shutil.copyfile(self._copy_on_write_source_path, write_path)
+            except FileNotFoundError:
+                log.error(
+                    f'复制配置文件失败 来源文件不存在 source={self._copy_on_write_source_path} write_path={write_path}'
+                )
+                return False
 
         self._copy_on_write_source_path = None
         return True
@@ -140,7 +146,8 @@ class YamlOperator:
 
     def update(self, key: str, value, save: bool = True):
         if not isinstance(self.data, dict):
-            self.data = {}
+            # 根节点为 list 是合法 YAML；keyed update 只适用于 dict。
+            return
         if key in self.data and not isinstance(value, list) and self.data[key] == value:
             return
         self.data[key] = value
