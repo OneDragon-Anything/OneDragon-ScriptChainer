@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from script_chainer.context.script_chainer_context import ScriptChainerContext
 
 ProgressCallback = Callable[[float, str], None]
+ProgressSignal = dict[str, str | None]
 
 APP_EXE_NAMES = (
     'OneDragon ScriptChainer.exe',
@@ -30,6 +31,8 @@ APP_EXE_NAMES = (
 RELEASE_ZIP_PREFIX = 'OneDragon-ScriptChainer'
 UPDATE_DIR_NAME = 'github_update'
 RUNTIME_DIR_NAME = '.runtime'
+GITHUB_USER_AGENT = 'OneDragon-ScriptChainer'
+CANCEL_SIGNAL = 'cancel'
 
 
 class GithubUpdateService:
@@ -42,7 +45,7 @@ class GithubUpdateService:
         self,
         target_tag: str | None = None,
         progress_callback: ProgressCallback | None = None,
-        progress_signal: dict[str, str | None] | None = None,
+        progress_signal: ProgressSignal | None = None,
     ) -> tuple[bool, str]:
         if not os_utils.run_in_exe():
             return False, gt('当前不是发布版，无法自动更新')
@@ -58,13 +61,14 @@ class GithubUpdateService:
 
             if progress_callback is not None:
                 progress_callback(0, gt('正在获取 GitHub 更新版本'))
+
             latest_tag = target_tag or self.get_latest_tag()
             downloader_param = self._get_downloader_param(latest_tag, update_dir)
-            release_zip_name = downloader_param.save_file_name
-            zip_path = update_dir / release_zip_name
+            zip_path = update_dir / downloader_param.save_file_name
             downloader = CommonDownloader(downloader_param)
             proxy = self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None
             ghproxy_url = self.ctx.env_config.gh_proxy_url if self.ctx.env_config.is_gh_proxy else None
+
             if not downloader.download(
                 proxy_url=proxy,
                 ghproxy_url=ghproxy_url,
@@ -72,11 +76,11 @@ class GithubUpdateService:
                 progress_signal=progress_signal,
                 progress_callback=progress_callback,
             ):
-                if progress_signal is not None and progress_signal.get('signal') == 'cancel':
+                if self._is_cancelled(progress_signal):
                     return False, gt('下载已取消')
                 return False, gt('下载 GitHub 更新失败')
 
-            if progress_signal is not None and progress_signal.get('signal') == 'cancel':
+            if self._is_cancelled(progress_signal):
                 return False, gt('下载已取消')
 
             if progress_callback is not None:
@@ -120,8 +124,7 @@ class GithubUpdateService:
     def get_latest_tag(self) -> str:
         repo_path = self._get_github_repo_path()
         release_url = f'https://api.github.com/repos/{repo_path}/releases/latest'
-        with self._open_request(release_url, headers={'User-Agent': 'OneDragon-ScriptChainer'}) as response:
-            release = json.loads(response.read().decode('utf-8'))
+        release = self._get_github_json(release_url)
 
         tag = str(release.get('tag_name', '')).strip()
         if not tag:
@@ -131,8 +134,7 @@ class GithubUpdateService:
     def get_latest_beta_tag(self) -> str:
         repo_path = self._get_github_repo_path()
         releases_url = f'https://api.github.com/repos/{repo_path}/releases?per_page=30'
-        with self._open_request(releases_url, headers={'User-Agent': 'OneDragon-ScriptChainer'}) as response:
-            releases = json.loads(response.read().decode('utf-8'))
+        releases = self._get_github_json(releases_url)
 
         for release in releases:
             if release.get('draft'):
@@ -145,13 +147,21 @@ class GithubUpdateService:
         return ''
 
     def _get_github_repo_path(self) -> str:
-        parsed = urllib.parse.urlparse(self.ctx.project_config.github_homepage)
+        homepage = self.ctx.project_config.github_homepage
+        parsed = urllib.parse.urlparse(homepage)
         repo_path = parsed.path.strip('/')
         if repo_path.endswith('.git'):
             repo_path = repo_path[:-4]
         if repo_path.count('/') < 1:
-            raise RuntimeError(f'无法解析 GitHub 仓库地址: {self.ctx.project_config.github_homepage}')
+            raise RuntimeError(f'无法解析 GitHub 仓库地址: {homepage}')
         return repo_path
+
+    def _get_github_json(self, url: str):
+        with self._open_request(
+            url,
+            headers={'User-Agent': GITHUB_USER_AGENT},
+        ) as response:
+            return json.loads(response.read().decode('utf-8'))
 
     def _open_request(
         self,
@@ -299,9 +309,6 @@ class GithubUpdateService:
         lines.extend([
             '    throw',
             '}',
-        ])
-
-        lines.extend([
             'Start-Process -FilePath $CurrentExe -WorkingDirectory $WorkDir',
             f'Remove-Item -LiteralPath {self._ps_quote(str(update_dir))} -Recurse -Force',
         ])
@@ -322,6 +329,12 @@ class GithubUpdateService:
             ],
             cwd=str(work_dir),
             creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+
+    def _is_cancelled(self, progress_signal: ProgressSignal | None) -> bool:
+        return (
+            progress_signal is not None
+            and progress_signal.get('signal') == CANCEL_SIGNAL
         )
 
     def _ps_quote(self, value: str) -> str:
