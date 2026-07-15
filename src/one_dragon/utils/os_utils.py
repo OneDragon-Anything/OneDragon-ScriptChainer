@@ -35,7 +35,7 @@ def get_path_under_work_dir(*sub_paths: str) -> str:
 def get_resource_path(*sub_paths: str) -> str:
     """获取资源文件路径。
 
-    优先查找工作目录下的路径，不存在时回退到 PyInstaller _MEIPASS。
+    优先查找工作目录下的路径，不存在时回退到 PyInstaller _MEIPASS/resources。
     """
     work_path = os.path.join(get_work_dir(), *sub_paths)
     if os.path.exists(work_path):

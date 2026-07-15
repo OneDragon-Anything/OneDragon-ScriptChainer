@@ -6,8 +6,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('../config/project.yml', 'config'),
-        ('../assets', 'assets')
+        ('../config/project.yml', 'resources/config'),
+        ('../assets', 'resources/assets')
     ],
     hiddenimports=[],
     hookspath=[],
@@ -22,16 +22,14 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='OneDragon ScriptChainer',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -40,4 +38,15 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=False,
     icon=['..\\assets\\ui\\editor_icon.ico'],
+    contents_directory='.runtime',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='OneDragon ScriptChainer',
 )

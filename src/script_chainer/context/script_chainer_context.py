@@ -6,10 +6,12 @@ from one_dragon.base.config.notify_config import NotifyConfig
 from one_dragon.base.push.push_service import PushService
 from one_dragon.custom.custom_config import CustomConfig
 from one_dragon.envs.env_config import EnvConfig
+from one_dragon.envs.ghproxy_service import GhProxyService
 from one_dragon.envs.project_config import ProjectConfig
 from one_dragon.utils import os_utils
 from one_dragon.utils.log_utils import log
 from script_chainer.config.script_config import ScriptChainConfig
+from script_chainer.services.github_update_service import GithubUpdateService
 
 ONE_DRAGON_CONTEXT_EXECUTOR = ThreadPoolExecutor(thread_name_prefix='one_dragon_context', max_workers=1)
 
@@ -20,6 +22,8 @@ class ScriptChainerContext:
         self.project_config: ProjectConfig = ProjectConfig()
         self.env_config: EnvConfig = EnvConfig()
         self.custom_config: CustomConfig = CustomConfig()
+        self.gh_proxy_service: GhProxyService = GhProxyService(self.env_config)
+        self.github_update_service: GithubUpdateService = GithubUpdateService(self)
         self.push_service: PushService = PushService(self)
         self.notify_config: NotifyConfig = NotifyConfig(None, {})
         self._init_lock = threading.Lock()
