@@ -5,6 +5,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import ExpandSettingCard, FluentIcon
 from qfluentwidgets.components.settings.expand_setting_card import GroupSeparator
+from shiboken6 import isValid
 
 from one_dragon.utils.i18_utils import gt
 
@@ -72,8 +73,12 @@ class ExpandSettingCardGroup(ExpandSettingCard):
 
     def _update_separators(self) -> None:
         """根据卡片可见性更新分隔线：仅当当前卡片可见且前面存在可见卡片时才显示分隔线"""
+        if not isValid(self):
+            return
         has_visible_before = False
         for card, sep in self._card_sep_pairs:
+            if not isValid(card):
+                continue
             if sep is not None:
                 sep.setVisible(card.isVisible() and has_visible_before)
             if card.isVisible():
