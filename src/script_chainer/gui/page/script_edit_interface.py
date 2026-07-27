@@ -128,6 +128,15 @@ class ScriptEditInterface(VerticalScrollInterface):
         )
         content_widget.add_widget(self.run_timeout_seconds_opt)
 
+        block_switch_widget, self.block_switch = self._create_switch_option('阻塞')
+        self.block_opt = MultiPushSettingCard(
+            icon=FluentIcon.PAUSE,
+            title='阻塞运行',
+            content='勾选后启动会等待该脚本运行结束（默认开启）；不勾选则在后台非阻塞启动',
+            btn_list=[block_switch_widget],
+        )
+        content_widget.add_widget(self.block_opt)
+
         self.check_done_opt = ComboBoxSettingCard(
             icon=FluentIcon.COMPLETED,
             title='检查完成方式',
@@ -257,6 +266,7 @@ class ScriptEditInterface(VerticalScrollInterface):
         self.kill_script_after_done_switch.setChecked(config.kill_script_after_done)
         self.kill_game_after_done_switch.setChecked(config.kill_game_after_done)
         self.script_arguments_opt.setValue(config.script_arguments, emit_signal=False)
+        self.block_switch.setChecked(config.block)
         self.notify_start_switch.setChecked(config.notify_start)
         self.notify_done_switch.setChecked(config.notify_done)
 
@@ -351,6 +361,7 @@ class ScriptEditInterface(VerticalScrollInterface):
         config.kill_script_after_done = self.kill_script_after_done_switch.isChecked()
         config.kill_game_after_done = self.kill_game_after_done_switch.isChecked()
         config.script_arguments = self.script_arguments_opt.getValue()
+        config.block = self.block_switch.isChecked()
         config.notify_start = self.notify_start_switch.isChecked()
         config.notify_done = self.notify_done_switch.isChecked()
 

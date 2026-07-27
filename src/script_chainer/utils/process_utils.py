@@ -41,6 +41,7 @@ def launch_in_terminal(
     command: list[str],
     cwd: str | None = None,
     title: str | None = None,
+    block: bool = False,
 ) -> subprocess.Popen:
     """在终端窗口中启动命令。
 
@@ -49,11 +50,25 @@ def launch_in_terminal(
     Args:
         command: 命令及参数列表。
         cwd: 工作目录。
-        title: 终端窗口标题。
+        title: 终端窗口标题（仅非阻塞的 wt 分支使用）。
+        block: 是否阻塞等待命令真正结束。
 
     Returns:
         启动的 Popen 对象。
+
+    说明：
+        - ``block=False``（默认）：用 wt 开新标签页/窗口后**立即返回**（非阻塞）。
+        - ``block=True``：Windows Terminal 开完标签页即退出，无法等待真正的子进程，
+          故绕过 wt、改用新建控制台窗口（``CREATE_NEW_CONSOLE``）并 ``.wait()``——
+          既有可见窗口，又能正确阻塞到脚本真正结束。
     """
+    if block:
+        # 阻塞：不能用 wt（开完标签页即退、等不到真进程），改用新控制台窗口并等待。
+        flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
+        proc = subprocess.Popen(command, cwd=cwd, creationflags=flags)
+        proc.wait()
+        return proc
+
     wt_path = _find_windows_terminal()
     if wt_path is not None:
         wt_cmd = [wt_path]

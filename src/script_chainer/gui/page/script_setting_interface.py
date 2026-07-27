@@ -1,3 +1,4 @@
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
@@ -36,9 +37,35 @@ from script_chainer.gui.page.script_setting_utils import (
     show_warning,
 )
 from script_chainer.utils.process_utils import launch_in_terminal
-from script_chainer.utils.runner_utils import (
-    build_runner_command,
-)
+from script_chainer.utils.runner_utils import build_runner_command
+
+
+class ChainRunner(QThread):
+    """后台逐条启动脚本链，每条按自身 block 决定阻塞/非阻塞，结束后经信号汇总结果。"""
+
+    chain_finished = Signal(int, list)
+
+    def __init__(self, chain_name: str, specs: list[tuple[int, bool, str]], parent=None):
+        super().__init__(parent)
+        self.chain_name = chain_name
+        self.specs = specs
+
+    def run(self) -> None:
+        launched = 0
+        failed: list[str] = []
+        for script_index, block, display_name in self.specs:
+            try:
+                cmd, cwd = build_runner_command(self.chain_name, script_index)
+                proc = launch_in_terminal(command=cmd, cwd=cwd, block=block)
+            except Exception:
+                failed.append(display_name)
+                continue
+            # 阻塞脚本非零退出 → 计入失败；非阻塞 rc 为 wt 的 0，按已启动计
+            if proc.returncode not in (0, None):
+                failed.append(display_name)
+            else:
+                launched += 1
+        self.chain_finished.emit(launched, failed)
 
 
 class ScriptSettingRootInterface(VerticalScrollInterface):
@@ -201,26 +228,32 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
         self.update_chain_display()
 
     def on_run_chain_clicked(self) -> None:
-        """拉起独立 runner 运行当前脚本链。"""
+        """按配置顺序逐条启动当前脚本链，每条按自身 block 决定阻塞/非阻塞。"""
         if self.chosen_config is None or self._runner_launch_in_progress:
+            return
+
+        specs = [
+            (i, cfg.block, cfg.display_name)
+            for i, cfg in enumerate(self.chosen_config.script_list)
+            if cfg.enabled
+        ]
+        if not specs:
+            show_warning(self.window(), '无法运行', '没有已启用的脚本')
             return
 
         self._runner_launch_in_progress = True
         self.run_chain_btn.setEnabled(False)
-        chain_name = self.chosen_config.module_name
-        try:
-            cmd, cwd = build_runner_command(chain_name)
-            launch_in_terminal(
-                command=cmd,
-                cwd=cwd,
-                title=f'运行脚本链 {chain_name}',
-            )
-            show_success(self.window(), '运行全部', f'已在终端启动脚本链 {chain_name}')
-        except Exception as e:
-            show_error(self.window(), '启动失败', str(e))
-        finally:
-            self._runner_launch_in_progress = False
-            self.run_chain_btn.setEnabled(True)
+        self._chain_runner = ChainRunner(self.chosen_config.module_name, specs, parent=self)
+        self._chain_runner.chain_finished.connect(self._on_chain_run_finished)
+        self._chain_runner.start()
+
+    def _on_chain_run_finished(self, launched: int, failed: list) -> None:
+        self._runner_launch_in_progress = False
+        self.run_chain_btn.setEnabled(True)
+        if failed:
+            show_error(self.window(), '运行异常', f'{len(failed)} 个脚本启动失败：{", ".join(failed)}')
+        else:
+            show_success(self.window(), '运行全部', f'已启动 {launched} 个脚本')
 
     def update_chain_display(self) -> None:
         """更新脚本链的显示"""

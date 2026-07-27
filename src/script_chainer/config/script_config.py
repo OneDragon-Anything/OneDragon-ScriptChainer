@@ -156,6 +156,7 @@ class ScriptConfig:
     attach_direction: str = AttachDirection.NONE
     no_log_timeout_seconds: int = 0
     no_log_max_retries: int = 3
+    block: bool = True
 
     # 不参与序列化的元数据
     idx: int = field(default=0, repr=False, compare=False)

@@ -162,8 +162,10 @@ class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
                 command=cmd,
                 cwd=cwd,
                 title=f'调试 {display}',
+                block=self.config.block,
             )
-            show_success(self.window(), '调试运行', f'已在终端启动 {display}')
+            mode = '阻塞' if self.config.block else '后台非阻塞'
+            show_success(self.window(), '调试运行', f'已以{mode}模式启动 {display}')
         except Exception as e:
             show_error(self.window(), '启动失败', str(e))
 
