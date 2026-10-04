@@ -19,7 +19,7 @@ from script_chainer.config.script_config import (
     ScriptChainConfig,
     ScriptConfig,
 )
-from script_chainer.gui.page.script_setting_dialogs import ScriptRenameDialog
+from script_chainer.gui.page.script_setting_dialogs import ComputerOpEditDialog, ScriptRenameDialog
 from script_chainer.gui.page.script_setting_utils import (
     show_error,
     show_success,
@@ -344,3 +344,90 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
         self._external_tag.setVisible(is_external)
         self.edit_btn.setIcon(FluentIcon.FOLDER.icon() if is_external else FluentIcon.EDIT.icon())
         self.edit_btn.setToolTip('定位文件' if is_external else '编辑')
+
+
+class ComputerOpSettingCard(ScriptCardMixin, DraggableListItem):
+    """电脑操作卡片，通过铅笔编辑选择要执行的操作。"""
+
+    value_changed = Signal(ScriptConfig)
+    deleted = Signal(int)
+
+    def __init__(self, config: ScriptConfig, chain_name: str, index: int = 0, parent=None,
+                 enable_opacity_effect: bool = True):
+        self.config: ScriptConfig = config
+        self.chain_name: str = chain_name
+        self._setup_common_widgets()
+
+        self.debug_btn = TransparentToolButton(FluentIcon.PLAY, None)
+        self.debug_btn.setToolTip('调试运行')
+        self.debug_btn.clicked.connect(self.on_debug_clicked)
+
+        content_widget = MultiPushSettingCard(
+            icon=FluentIcon.COMMAND_PROMPT,
+            title=self._get_title(),
+            content=self._get_operation_display(),
+            parent=parent,
+            btn_list=[
+                self.debug_btn,
+                self.edit_btn,
+                self.delete_btn,
+                self.enable_switch,
+            ]
+        )
+
+        self._setup_rename_btn(content_widget)
+
+        DraggableListItem.__init__(
+            self,
+            data=config,
+            index=index,
+            content_widget=content_widget,
+            parent=parent,
+            enable_opacity_effect=enable_opacity_effect,
+        )
+
+        self.content_widget: MultiPushSettingCard
+        self._update_display()
+
+    def _get_title(self) -> str:
+        if self.config.display_name:
+            return self.config.display_name
+        return '电脑操作'
+
+    def _get_operation_display(self) -> str:
+        label = self.config.computer_operation_display_name
+        return label if label else '未设置'
+
+    def on_debug_clicked(self) -> None:
+        """调试运行当前电脑操作"""
+        invalid_msg = self.config.invalid_message
+        if invalid_msg is not None:
+            show_warning(self.window(), '配置不合法', invalid_msg)
+            return
+
+        display = self._get_title()
+
+        try:
+            cmd, cwd = build_runner_command(self.chain_name, self.index)
+            launch_in_terminal(
+                command=cmd,
+                cwd=cwd,
+                title=f'调试 {display}',
+            )
+            show_success(self.window(), '调试运行', f'已在终端启动 {display}')
+        except Exception as e:
+            show_error(self.window(), '启动失败', str(e))
+
+    def on_edit_clicked(self) -> None:
+        """弹窗选择要执行的电脑操作。"""
+        dialog = ComputerOpEditDialog(self.config.computer_operation, parent=self.window())
+        if dialog.exec():
+            self.config.computer_operation = dialog.get_operation()
+            self._update_display()
+            self.value_changed.emit(self.config)
+
+    def _update_display(self) -> None:
+        """更新卡片显示内容"""
+        self.content_widget.setTitle(self._get_title())
+        self.content_widget.setContent(self._get_operation_display())
+        self.enable_switch.setChecked(self.config.enabled)

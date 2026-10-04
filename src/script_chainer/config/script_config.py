@@ -31,6 +31,12 @@ class ScriptProcessName(Enum):
     OK_SCRIPTS = ConfigItem(label='OK', value=['pythonw.exe'])
 
 
+class ComputerOperation(Enum):
+
+    OPEN_PRIVACY_SCREEN = ConfigItem(label='打开隐私屏', value='open_privacy_screen', desc='打开全屏隐私屏，屏幕变黑且截图录屏拍不到画面')
+    CLOSE_PRIVACY_SCREEN = ConfigItem(label='关闭隐私屏', value='close_privacy_screen', desc='关闭已打开的隐私屏，恢复屏幕显示')
+
+
 class GameProcessName(Enum):
 
     GENSHIN_IMPACT_CN = ConfigItem(label='原神', value='YuanShen.exe')
@@ -47,6 +53,7 @@ class GameProcessName(Enum):
 class ScriptType:
     EXTERNAL = 'external'
     PYTHON = 'python'
+    COMPUTER_OP = 'computer_op'
 
 
 class AttachDirection:
@@ -141,6 +148,7 @@ class ScriptConfig:
     game_label: str = ''
     script_type: str = ScriptType.EXTERNAL
     script_path: str = ''
+    computer_operation: str = ''
     script_process_name: list[str] = field(default_factory=list)
     game_process_name: str = ''
     launcher_mode: bool = False
@@ -176,6 +184,15 @@ class ScriptConfig:
         """创建 Python 脚本类型的默认配置。"""
         return cls(
             script_type=ScriptType.PYTHON,
+            notify_start=False,
+            notify_done=False,
+        )
+
+    @classmethod
+    def create_computer_op_default(cls) -> 'ScriptConfig':
+        """创建电脑操作类型的默认配置。"""
+        return cls(
+            script_type=ScriptType.COMPUTER_OP,
             notify_start=False,
             notify_done=False,
         )
@@ -244,7 +261,19 @@ class ScriptConfig:
             return ''
 
     @property
+    def computer_operation_display_name(self) -> str:
+        config = get_config_item_from_enum(ComputerOperation, self.computer_operation)
+        if config is not None:
+            return config.label
+        return ''
+
+    @property
     def invalid_message(self) -> str | None:
+        if self.script_type == ScriptType.COMPUTER_OP:
+            if get_config_item_from_enum(ComputerOperation, self.computer_operation) is None:
+                return '未选择电脑操作'
+            return None
+
         if self.script_type == ScriptType.PYTHON:
             if not self.script_path:
                 return 'Python 脚本路径为空'
@@ -428,6 +457,18 @@ class ScriptChainConfig(YamlConfig):
             新创建的 ScriptConfig。
         """
         new_config = ScriptConfig.create_default()
+        self.script_list.append(new_config)
+        self.init_idx()
+        self.save()
+        return new_config
+
+    def add_computer_op(self) -> ScriptConfig:
+        """新增一个电脑操作配置并返回。
+
+        Returns:
+            新创建的 ScriptConfig。
+        """
+        new_config = ScriptConfig.create_computer_op_default()
         self.script_list.append(new_config)
         self.init_idx()
         self.save()
