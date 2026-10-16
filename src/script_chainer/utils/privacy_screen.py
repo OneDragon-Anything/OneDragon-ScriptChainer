@@ -21,7 +21,6 @@ from __future__ import annotations
 import ctypes
 import re
 import threading
-
 from ctypes import wintypes
 
 from script_chainer.win_exe.runner_logging import log
@@ -361,8 +360,8 @@ def _window_proc(hwnd, msg, wparam, lparam):
             return 0
         if msg == WM_PRIVACY_SHOW:
             if not _user32.IsWindowVisible(hwnd):
-                _reveal_privacy_window(hwnd)
-            return 0
+                return int(_reveal_privacy_window(hwnd))
+            return 1
     except Exception:
         log.error('隐私屏窗口消息处理异常 msg=%s', msg, exc_info=True)
         return 0
@@ -376,20 +375,23 @@ def _conceal_privacy_window(hwnd: int) -> None:
     log.info('隐私屏已隐藏')
 
 
-def _reveal_privacy_window(hwnd: int) -> None:
-    """重新显示已隐藏的隐私屏，并再次置顶、排除捕获。"""
+def _reveal_privacy_window(hwnd: int) -> bool:
+    """先确认排除捕获，再重新显示并置顶；失败时保持隐藏。"""
+    ctypes.set_last_error(0)
+    if not _user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+        log.error(
+            '重新显示时 SetWindowDisplayAffinity 失败 error=%s 隐私屏保持隐藏',
+            ctypes.get_last_error(),
+        )
+        return False
+
     _user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
     _user32.SetWindowPos(
         hwnd, HWND_TOPMOST, 0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
     )
-    ctypes.set_last_error(0)
-    if not _user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
-        log.warning(
-            '重新显示时 SetWindowDisplayAffinity 失败 error=%s 隐私屏仍会显示但截屏可能拍到画面',
-            ctypes.get_last_error(),
-        )
     log.info('隐私屏已显示')
+    return True
 
 
 def _enable_click_through(hwnd: int) -> bool:
@@ -434,16 +436,18 @@ def _create_privacy_window(close_key: str) -> int | None:
         _user32.DestroyWindow(hwnd)
         return None
 
-    _user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-    _user32.UpdateWindow(hwnd)
-
-    if _user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
-        log.info('隐私屏已覆盖虚拟桌面 (%s,%s) %sx%s', vx, vy, vw, vh)
-    else:
-        log.warning(
-            'SetWindowDisplayAffinity 失败 error=%s 隐私屏仍会显示但截屏可能拍到画面',
+    ctypes.set_last_error(0)
+    if not _user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+        log.error(
+            'SetWindowDisplayAffinity 失败 error=%s 取消显示隐私屏',
             ctypes.get_last_error(),
         )
+        _user32.DestroyWindow(hwnd)
+        return None
+
+    _user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+    _user32.UpdateWindow(hwnd)
+    log.info('隐私屏已覆盖虚拟桌面 (%s,%s) %sx%s', vx, vy, vw, vh)
 
     # 修饰键固定 Ctrl+Alt+Shift，主键来自设置；解析失败时回退默认值。
     # MOD_NOREPEAT：按住不连发，避免一次按键把隐私屏来回切换。
@@ -498,9 +502,9 @@ class PrivacyScreen:
             if self._thread is not None and self._thread.is_alive():
                 hwnd = self._hwnd
                 if hwnd:
-                    # 窗口线程正在等消息，同步发过去，返回时黑屏已经盖上。
-                    _user32.SendMessageW(hwnd, WM_PRIVACY_SHOW, 0, 0)
-                return True
+                    # 同步获取窗口线程的显示结果，排除捕获失败时不能报告成功。
+                    return bool(_user32.SendMessageW(hwnd, WM_PRIVACY_SHOW, 0, 0))
+                return False
 
             self._hwnd = None
             self._ready.clear()
