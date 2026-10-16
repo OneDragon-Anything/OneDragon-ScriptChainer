@@ -216,6 +216,7 @@ _KEY_TO_VK_EXTRA = {
     'left': 0x25,
     'right': 0x27,
     'minus': 0xBD,
+    '-': 0xBD,
     'equals': 0xBB,
     'comma': 0xBC,
     'period': 0xBE,
