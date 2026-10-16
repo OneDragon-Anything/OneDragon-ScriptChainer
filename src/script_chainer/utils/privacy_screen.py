@@ -492,6 +492,7 @@ class PrivacyScreen:
         self._thread: threading.Thread | None = None
         self._hwnd: int | None = None
         self._ready = threading.Event()
+        self._stop_requested = threading.Event()
 
     def start(self) -> bool:
         """在后台线程拉起隐私屏，返回是否成功盖住屏幕。
@@ -499,7 +500,11 @@ class PrivacyScreen:
         已经在运行但被快捷键隐藏时，会重新显示。
         """
         with self._lock:
-            if self._thread is not None and self._thread.is_alive():
+            if (
+                self._thread is not None
+                and self._thread.is_alive()
+                and not self._stop_requested.is_set()
+            ):
                 hwnd = self._hwnd
                 if hwnd:
                     # 同步获取窗口线程的显示结果，排除捕获失败时不能报告成功。
@@ -507,23 +512,40 @@ class PrivacyScreen:
                 return False
 
             self._hwnd = None
-            self._ready.clear()
+            # 每次启动独立持有事件，迟到的旧线程不能唤醒或覆盖新一轮启动。
+            ready = self._ready = threading.Event()
+            stop_requested = self._stop_requested = threading.Event()
             self._thread = threading.Thread(
-                target=self._run, name='privacy_screen', daemon=True
+                target=self._run,
+                args=(ready, stop_requested),
+                name='privacy_screen',
+                daemon=True,
             )
             self._thread.start()
-            self._ready.wait(START_TIMEOUT_SECONDS)
+
+        # 等待时不持锁，让 stop() 能取消尚未完成的建窗。
+        is_ready = ready.wait(START_TIMEOUT_SECONDS)
+        with self._lock:
+            if self._stop_requested is not stop_requested or stop_requested.is_set():
+                return False
             hwnd = self._hwnd
+            if is_ready and hwnd is not None:
+                return True
 
-        if hwnd is None:
-            log.error('隐私屏启动失败')
-            return False
+            stop_requested.set()
+            self._hwnd = None
 
-        return True
+        # 超时与句柄发布可能同时发生，此时窗口线程已错过取消检查。
+        if hwnd:
+            _user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+        log.error('隐私屏启动失败')
+        return False
 
     def stop(self) -> None:
         """关闭隐私屏，恢复屏幕显示。"""
         with self._lock:
+            self._stop_requested.set()
+            self._ready.set()
             thread = self._thread
             hwnd = self._hwnd
             self._thread = None
@@ -541,7 +563,9 @@ class PrivacyScreen:
         else:
             log.info('隐私屏已关闭')
 
-    def _run(self) -> None:
+    def _run(
+        self, ready: threading.Event, stop_requested: threading.Event
+    ) -> None:
         """窗口线程：建窗、显示，然后跑消息循环直到窗口销毁。"""
         old_dpi = _set_thread_dpi_awareness()
         try:
@@ -554,10 +578,20 @@ class PrivacyScreen:
             # 范围缩到最小（窗口本身的属性在建窗时已锁定）。
             _restore_thread_dpi_awareness(old_dpi)
 
-        self._hwnd = hwnd
-        self._ready.set()
+        with self._lock:
+            cancelled = (
+                self._stop_requested is not stop_requested or stop_requested.is_set()
+            )
+            if not cancelled:
+                self._hwnd = hwnd
+            ready.set()
 
         if hwnd is None:
+            return
+
+        if cancelled:
+            # 建窗期间可能已停止甚至重启；在窗口所属线程直接回收迟到的窗口。
+            _user32.DestroyWindow(hwnd)
             return
 
         msg = wintypes.MSG()

@@ -1,6 +1,7 @@
 import ctypes
 import importlib.util
 import sys
+import threading
 import unittest
 from pathlib import Path
 from types import ModuleType
@@ -226,6 +227,250 @@ class PrivacyScreenTests(unittest.TestCase):
         self.assertFalse(screen.start())
 
         self.user32.SendMessageW.assert_not_called()
+
+    def test_start_timeout_destroys_late_window_without_stop(self):
+        self._check_timed_out_window_is_destroyed(stop_before_creation=False)
+
+    def test_stop_after_start_timeout_still_destroys_late_window(self):
+        self._check_timed_out_window_is_destroyed(stop_before_creation=True)
+
+    def _check_timed_out_window_is_destroyed(self, stop_before_creation):
+        creating = threading.Event()
+        release_creation = threading.Event()
+        destroyed_by = []
+        screen = privacy_screen.PrivacyScreen()
+        self.user32.DestroyWindow.side_effect = (
+            lambda hwnd: destroyed_by.append(threading.current_thread())
+        )
+
+        def create_window(close_key):
+            creating.set()
+            if not release_creation.wait(2):
+                raise RuntimeError("Test did not release window creation")
+            return self.hwnd
+
+        self.enterContext(
+            patch.object(privacy_screen, "_create_privacy_window", create_window)
+        )
+        self.enterContext(patch.object(privacy_screen, "START_TIMEOUT_SECONDS", 0))
+        self.enterContext(patch.object(privacy_screen, "STOP_TIMEOUT_SECONDS", 0))
+        worker = None
+        try:
+            self.assertFalse(screen.start())
+            worker = screen._thread
+            self.assertTrue(creating.wait(1))
+            self.assertTrue(screen._stop_requested.is_set())
+            if stop_before_creation:
+                screen.stop()
+            release_creation.set()
+            worker.join(timeout=1)
+
+            self.assertFalse(worker.is_alive())
+            self.assertIsNone(screen._hwnd)
+            self.user32.DestroyWindow.assert_called_once_with(self.hwnd)
+            self.assertEqual(destroyed_by, [worker])
+            self.user32.GetMessageW.assert_not_called()
+        finally:
+            release_creation.set()
+            if worker is not None:
+                worker.join(timeout=2)
+
+    def test_start_timeout_closes_window_published_at_timeout_boundary(self):
+        screen = privacy_screen.PrivacyScreen()
+        ready = threading.Event()
+        closed = threading.Event()
+        wait_until_ready = ready.wait
+        threading_proxy = Mock(wraps=threading)
+        threading_proxy.Event.side_effect = [ready, threading.Event()]
+
+        def timeout_after_publication(timeout):
+            self.assertTrue(wait_until_ready(1))
+            return False
+
+        def get_message(*args):
+            closed.wait(2)
+            return 0
+
+        self.user32.GetMessageW.side_effect = get_message
+        self.user32.PostMessageW.side_effect = lambda *args: closed.set()
+        with (
+            patch.object(privacy_screen, "threading", threading_proxy),
+            patch.object(ready, "wait", side_effect=timeout_after_publication),
+        ):
+            try:
+                self.assertFalse(screen.start())
+                screen._thread.join(timeout=1)
+
+                self.assertFalse(screen._thread.is_alive())
+                self.assertIsNone(screen._hwnd)
+                self.assertTrue(screen._stop_requested.is_set())
+                self.user32.PostMessageW.assert_called_once_with(
+                    self.hwnd, privacy_screen.WM_CLOSE, 0, 0
+                )
+            finally:
+                closed.set()
+                screen._thread.join(timeout=2)
+
+    def test_stop_during_creation_cancels_start_and_destroys_late_window(self):
+        creating = threading.Event()
+        release_creation = threading.Event()
+        screen = privacy_screen.PrivacyScreen()
+        results = []
+
+        def create_window(close_key):
+            creating.set()
+            if not release_creation.wait(2):
+                raise RuntimeError("Test did not release window creation")
+            return self.hwnd
+
+        self.enterContext(
+            patch.object(privacy_screen, "_create_privacy_window", create_window)
+        )
+        self.enterContext(patch.object(privacy_screen, "STOP_TIMEOUT_SECONDS", 0))
+        starter = threading.Thread(target=lambda: results.append(screen.start()))
+        worker = None
+        starter.start()
+        try:
+            self.assertTrue(creating.wait(1))
+            worker = screen._thread
+            screen.stop()
+            starter.join(timeout=1)
+
+            self.assertFalse(starter.is_alive())
+            self.assertEqual(results, [False])
+            self.assertTrue(worker.is_alive())
+            self.assertIsNone(screen._thread)
+            self.user32.PostMessageW.assert_not_called()
+
+            release_creation.set()
+            worker.join(timeout=1)
+            screen.stop()
+
+            self.assertFalse(worker.is_alive())
+            self.assertIsNone(screen._hwnd)
+            self.user32.DestroyWindow.assert_called_once_with(self.hwnd)
+            self.user32.GetMessageW.assert_not_called()
+        finally:
+            release_creation.set()
+            starter.join(timeout=2)
+            if worker is not None:
+                worker.join(timeout=2)
+
+    def test_stop_posts_close_for_published_window(self):
+        closed = threading.Event()
+        screen = privacy_screen.PrivacyScreen()
+
+        def get_message(*args):
+            closed.wait(2)
+            return 0
+
+        self.user32.GetMessageW.side_effect = get_message
+        self.user32.PostMessageW.side_effect = lambda *args: closed.set()
+        try:
+            self.assertTrue(screen.start())
+            worker = screen._thread
+            screen.stop()
+            screen.stop()
+
+            self.assertFalse(worker.is_alive())
+            self.user32.PostMessageW.assert_called_once_with(
+                self.hwnd, privacy_screen.WM_CLOSE, 0, 0
+            )
+            self.assertIsNone(screen._thread)
+            self.assertIsNone(screen._hwnd)
+        finally:
+            closed.set()
+            if screen._thread is not None:
+                screen._thread.join(timeout=2)
+
+    def test_old_creation_cannot_publish_handle_or_signal_restarted_screen(self):
+        for old_hwnd in (self.hwnd, None):
+            with self.subTest(old_hwnd=old_hwnd):
+                self._check_restart_after_old_creation(old_hwnd)
+
+    def _check_restart_after_old_creation(self, old_hwnd):
+        self.user32.reset_mock()
+        creating_old = threading.Event()
+        creating_new = threading.Event()
+        release_old = threading.Event()
+        release_new = threading.Event()
+        closed = threading.Event()
+        screen = privacy_screen.PrivacyScreen()
+        new_hwnd = 5678
+        results = []
+
+        def create_window(close_key):
+            if not creating_old.is_set():
+                creating_old.set()
+                if not release_old.wait(2):
+                    raise RuntimeError("Test did not release old creation")
+                return old_hwnd
+            creating_new.set()
+            if not release_new.wait(2):
+                raise RuntimeError("Test did not release new creation")
+            return new_hwnd
+
+        def get_message(*args):
+            closed.wait(2)
+            return 0
+
+        self.user32.GetMessageW.side_effect = get_message
+        self.user32.PostMessageW.side_effect = lambda *args: closed.set()
+        with patch.object(
+            privacy_screen, "_create_privacy_window", create_window
+        ):
+            with patch.object(privacy_screen, "START_TIMEOUT_SECONDS", 0):
+                self.assertFalse(screen.start())
+            old_worker = screen._thread
+            old_ready = screen._ready
+            old_stop = screen._stop_requested
+            starter = threading.Thread(
+                target=lambda: results.append(screen.start())
+            )
+            try:
+                self.assertTrue(creating_old.wait(1))
+                starter.start()
+                self.assertTrue(creating_new.wait(1))
+                new_worker = screen._thread
+                self.assertIsNot(screen._ready, old_ready)
+                self.assertIsNot(screen._stop_requested, old_stop)
+                self.assertFalse(screen._stop_requested.is_set())
+
+                release_old.set()
+                old_worker.join(timeout=1)
+
+                self.assertFalse(old_worker.is_alive())
+                self.assertTrue(old_ready.is_set())
+                self.assertFalse(screen._ready.is_set())
+                self.assertIsNone(screen._hwnd)
+                self.assertEqual(results, [])
+                if old_hwnd is not None:
+                    self.user32.DestroyWindow.assert_called_once_with(old_hwnd)
+                else:
+                    self.user32.DestroyWindow.assert_not_called()
+
+                release_new.set()
+                starter.join(timeout=1)
+
+                self.assertFalse(starter.is_alive())
+                self.assertEqual(results, [True])
+                self.assertEqual(screen._hwnd, new_hwnd)
+                self.assertIs(screen._thread, new_worker)
+                screen.stop()
+
+                self.assertFalse(new_worker.is_alive())
+                self.user32.PostMessageW.assert_called_once_with(
+                    new_hwnd, privacy_screen.WM_CLOSE, 0, 0
+                )
+            finally:
+                release_old.set()
+                release_new.set()
+                closed.set()
+                old_worker.join(timeout=2)
+                if starter.ident is not None:
+                    starter.join(timeout=2)
+                if screen._thread is not None:
+                    screen._thread.join(timeout=2)
 
 
 if __name__ == "__main__":
