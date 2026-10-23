@@ -1,7 +1,6 @@
 import os
 
 from PySide6.QtCore import QEvent, QObject, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
@@ -40,6 +39,7 @@ from script_chainer.config.script_config import (
     ScriptConfig,
     ScriptProcessName,
 )
+from script_chainer.gui.page.script_setting_utils import show_error
 from script_chainer.utils.process_name_utils import normalize_process_names
 
 
@@ -151,11 +151,6 @@ class ScriptEditInterface(VerticalScrollInterface):
         )
         self.script_arguments_opt.line_edit.setMinimumWidth(200)
         content_widget.add_widget(self.script_arguments_opt)
-
-        self.error_label = CaptionLabel(text="输入不正确")
-        self.error_label.setTextColor("#cf1010", QColor(255, 28, 32))
-        self.error_label.hide()
-        content_widget.add_widget(self.error_label)
 
         notify_start_switch_widget, self.notify_start_switch = self._create_switch_option('开始')
         notify_done_switch_widget, self.notify_done_switch = self._create_switch_option('结束')
@@ -376,13 +371,9 @@ class ScriptEditInterface(VerticalScrollInterface):
             if invalid_message in ('启动后实际运行的程序为空', config.launcher_mode_invalid_message):
                 self.script_process_name_opt.set_error_message(invalid_message)
                 self.launch_advanced_group.setExpand(True)
-                self.error_label.hide()
-                return False
-            self.script_process_name_opt.set_error_message(None)
-            self.error_label.setText(invalid_message)
-            self.error_label.show()
+            else:
+                self.script_process_name_opt.set_error_message(None)
+            show_error(self, '无法保存', invalid_message)
             return False
-        else:
-            self.script_process_name_opt.set_error_message(None)
-            self.error_label.hide()
-            return True
+        self.script_process_name_opt.set_error_message(None)
+        return True
