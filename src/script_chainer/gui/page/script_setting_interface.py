@@ -26,6 +26,7 @@ from script_chainer.config.script_config import (
 from script_chainer.context.script_chainer_context import ScriptChainerContext
 from script_chainer.gui.page.script_edit_interface import ScriptEditInterface
 from script_chainer.gui.page.script_setting_cards import (
+    ComputerOpSettingCard,
     PythonScriptSettingCard,
     ScriptSettingCard,
 )
@@ -87,6 +88,7 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
         add_script_menu.addAction(Action(FluentIcon.APPLICATION, '外部程序', triggered=self.on_add_script_clicked))
         add_script_menu.addAction(Action(FluentIcon.CODE, '新建 Python 脚本', triggered=self.on_add_python_script_clicked))
         add_script_menu.addAction(Action(FluentIcon.DOCUMENT, '选择已有 Python 脚本', triggered=self.on_import_python_script_clicked))
+        add_script_menu.addAction(Action(FluentIcon.COMMAND_PROMPT, '电脑操作', triggered=self.on_add_computer_op_clicked))
         self.add_script_btn = PrimaryDropDownPushButton(text='新增脚本')
         self.add_script_btn.setMenu(add_script_menu)
 
@@ -200,6 +202,13 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
         self.chosen_config.add_python_script_from_file(file_path)
         self.update_chain_display()
 
+    def on_add_computer_op_clicked(self) -> None:
+        """新增一个电脑操作"""
+        if self.chosen_config is None:
+            return
+        self.chosen_config.add_computer_op()
+        self.update_chain_display()
+
     def on_run_chain_clicked(self) -> None:
         """拉起独立 runner 运行当前脚本链。"""
         if self.chosen_config is None or self._runner_launch_in_progress:
@@ -249,6 +258,12 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
                 card = PythonScriptSettingCard(
                     script_config, chain_config=self.chosen_config, index=i)
                 card.attach_changed.connect(self._update_attach_margins)
+            elif script_config.script_type == ScriptType.COMPUTER_OP:
+                card = ComputerOpSettingCard(
+                    script_config,
+                    chain_name=self.chosen_config.module_name,
+                    index=i,
+                )
             else:
                 card = ScriptSettingCard(
                     script_config,

@@ -10,6 +10,7 @@ from one_dragon.envs.ghproxy_service import GhProxyService
 from one_dragon.envs.project_config import ProjectConfig
 from one_dragon.utils import os_utils
 from one_dragon.utils.log_utils import log
+from script_chainer.config.run_config import RunConfig
 from script_chainer.config.script_config import ScriptChainConfig
 from script_chainer.services.github_update_service import GithubUpdateService
 
@@ -26,6 +27,7 @@ class ScriptChainerContext:
         self.github_update_service: GithubUpdateService = GithubUpdateService(self)
         self.push_service: PushService = PushService(self)
         self.notify_config: NotifyConfig = NotifyConfig(None, {})
+        self.run_config: RunConfig = RunConfig()
         self._init_lock = threading.Lock()
 
     def init(self) -> None:
