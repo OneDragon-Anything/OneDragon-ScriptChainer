@@ -24,6 +24,7 @@ from one_dragon.base.push.channel.push_deer import PushDeer
 from one_dragon.base.push.channel.push_me import PushMe
 from one_dragon.base.push.channel.push_plus import PushPlus
 from one_dragon.base.push.channel.q_msg import QMsg
+from one_dragon.base.push.channel.qq_bot import QQBot
 from one_dragon.base.push.channel.server_chan import ServerChan
 from one_dragon.base.push.channel.smtp import Smtp
 from one_dragon.base.push.channel.synology_chat import SynologyChat
@@ -73,6 +74,7 @@ class PushService:
             self._add_channel(Webhook())
             self._add_channel(DingDingBot())
             self._add_channel(FeiShu())
+            self._add_channel(QQBot())
             self._add_channel(WorkWeixinBot())
             self._add_channel(WorkWeixinApp())
             self._add_channel(OneBot())
@@ -215,7 +217,8 @@ class PushService:
                 field_name=field.var_suffix,
                 default_value=field.default,
             )
-            config[field.var_suffix] = value
+            # 未配置的渠道字段可能来自 YAML/env 的 None；统一成字符串交给渠道校验。
+            config[field.var_suffix] = '' if value is None else str(value)
 
         return config
 
@@ -326,7 +329,7 @@ class PushService:
         future = self._executor.submit(
             self.push_merged,
             title,
-            items,
+            items[:],
             channel_id,
         )
         future.add_done_callback(thread_utils.handle_future_result)
