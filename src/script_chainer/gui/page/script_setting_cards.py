@@ -3,10 +3,17 @@ import os
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout
-from qfluentwidgets import Dialog, FluentIcon, SwitchButton, TransparentToolButton
+from qfluentwidgets import (
+    Action,
+    Dialog,
+    FluentIcon,
+    RoundMenu,
+    SwitchButton,
+    TransparentToolButton,
+)
 
 from one_dragon.utils.os_utils import reveal_in_file_manager
-from one_dragon_qt.widgets.draggable_list import DraggableListItem
+from one_dragon_qt.widgets.draggable_list import DraggableList, DraggableListItem
 from one_dragon_qt.widgets.setting_card.code_editor_setting_card import (
     PythonCodeEditorDialog,
 )
@@ -35,6 +42,9 @@ class ScriptCardMixin:
     config: ScriptConfig
     value_changed: Signal
     deleted: Signal
+    copy_requested: Signal
+    move_requested: Signal
+    index: int
 
     def _setup_common_widgets(self) -> None:
         self.enable_switch = SwitchButton()
@@ -75,6 +85,24 @@ class ScriptCardMixin:
         super().leaveEvent(event)
         self._rename_btn.setIcon(QIcon())
 
+    def contextMenuEvent(self, event) -> None:
+        """右键菜单：复制、置顶、上移、下移。"""
+        parent = self.parentWidget()
+        count = parent.get_item_count() if isinstance(parent, DraggableList) else 0
+        idx = self.index
+
+        menu = RoundMenu(parent=self)
+        menu.addAction(Action(FluentIcon.COPY, '复制', triggered=lambda: self.copy_requested.emit(idx)))
+        menu.addSeparator()
+        top_action = Action(FluentIcon.PIN, '置顶', triggered=lambda: self.move_requested.emit(idx, 0))
+        up_action = Action(FluentIcon.UP, '上移', triggered=lambda: self.move_requested.emit(idx, idx - 1))
+        down_action = Action(FluentIcon.DOWN, '下移', triggered=lambda: self.move_requested.emit(idx, idx + 1))
+        top_action.setEnabled(idx > 0)
+        up_action.setEnabled(idx > 0)
+        down_action.setEnabled(idx < count - 1)
+        menu.addActions([top_action, up_action, down_action])
+        menu.exec(event.globalPos())
+
     def on_enable_changed(self, checked: bool) -> None:
         self.config.enabled = checked
         self.value_changed.emit(self.config)
@@ -108,6 +136,8 @@ class ScriptSettingCard(ScriptCardMixin, DraggableListItem):
 
     value_changed = Signal(ScriptConfig)
     deleted = Signal(int)
+    copy_requested = Signal(int)
+    move_requested = Signal(int, int)
     edit_requested = Signal(object)
 
     def __init__(self, config: ScriptConfig, chain_name: str, index: int = 0, parent=None,
@@ -194,6 +224,8 @@ class PythonScriptSettingCard(ScriptCardMixin, DraggableListItem):
 
     value_changed = Signal(ScriptConfig)
     deleted = Signal(int)
+    copy_requested = Signal(int)
+    move_requested = Signal(int, int)
     attach_changed = Signal()
 
     def __init__(self, config: ScriptConfig, chain_config: ScriptChainConfig,
