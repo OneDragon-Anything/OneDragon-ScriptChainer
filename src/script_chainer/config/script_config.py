@@ -451,15 +451,78 @@ class ScriptChainConfig(YamlConfig):
         self.init_idx()
         self.save()
 
+    def duplicate_one(self, index: int) -> ScriptConfig | None:
+        """复制一个配置，插入到原配置（及其挂靠脚本）之后。
+
+        内部管理的 Python 脚本会同时复制一份 .py 文件，外部脚本共用同一文件。
+        副本不继承挂靠关系。
+
+        Args:
+            index: 要复制的配置下标。
+
+        Returns:
+            新创建的 ScriptConfig，下标非法时返回 None。
+        """
+        if index < 0 or index >= len(self.script_list):
+            return None
+        new_config = self.script_list[index].copy()
+        new_config.attach_direction = AttachDirection.NONE
+
+        if (
+            new_config.script_type == ScriptType.PYTHON
+            and new_config.script_path
+            and self._is_managed_script(new_config.script_path)
+        ):
+            code = self.get_python_script_content(index)
+            num = self._next_python_script_number()
+            p = self._get_python_scripts_dir() / f'{self.module_name}_{num}.py'
+            p.write_text(code, encoding='utf-8')
+            new_config.script_path = str(p)
+
+        # 跳过挂靠在原配置上的脚本，避免副本插进挂靠组中间
+        pos = index + 1
+        while self.is_attached_to_prev(pos):
+            pos += 1
+        self.script_list.insert(pos, new_config)
+        self.init_idx()
+        self.save()
+        return new_config
+
+    def move_one(self, index: int, new_index: int) -> None:
+        """移动一个配置到新位置（用于上移、下移、置顶）。
+
+        Args:
+            index: 当前下标。
+            new_index: 目标下标。
+        """
+        n = len(self.script_list)
+        if index < 0 or index >= n or new_index < 0 or new_index >= n or index == new_index:
+            return
+        new_order = list(self.script_list)
+        new_order.insert(new_index, new_order.pop(index))
+        self.reorder(new_order)
+
     def reorder(self, new_order: list[ScriptConfig]) -> None:
         """按新顺序重排脚本列表（用于拖拽排序）。
+
+        挂靠目标因重排而改变的 Python 脚本会取消挂靠，防止"漂移"到新邻居。
 
         Args:
             new_order: 新顺序的脚本列表。
         """
         if len(new_order) != len(self.script_list):
             return
+        old_target_of = {
+            id(config): target
+            for config, target in zip(self.script_list, self.compute_attach_targets(), strict=True)
+        }
         self.script_list = list(new_order)
+        for config, target in zip(self.script_list, self.compute_attach_targets(), strict=True):
+            if (
+                config.script_type == ScriptType.PYTHON
+                and old_target_of.get(id(config)) is not target
+            ):
+                config.attach_direction = AttachDirection.NONE
         self.init_idx()
         self.save()
 

@@ -261,6 +261,8 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
 
             card.value_changed.connect(self.script_config_changed)
             card.deleted.connect(self.script_config_deleted)
+            card.copy_requested.connect(self.script_config_copied)
+            card.move_requested.connect(self.script_config_moved)
 
         self._update_attach_margins()
 
@@ -306,15 +308,6 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
         if self.chosen_config is None:
             return
 
-        old_target_of = {
-            id(config): target
-            for config, target in zip(
-                self.chosen_config.script_list,
-                self.chosen_config.compute_attach_targets(),
-                strict=False,
-            )
-        }
-
         # 更新卡片列表的顺序和索引
         new_card_list: list[DraggableListItem] = []
         for data in new_data_list:
@@ -325,25 +318,8 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
         self.script_card_list = new_card_list
 
         self.chosen_config.reorder(new_data_list)
-        new_target_of = {
-            id(config): target
-            for config, target in zip(
-                self.chosen_config.script_list,
-                self.chosen_config.compute_attach_targets(),
-                strict=False,
-            )
-        }
-
         for idx, card in enumerate(self.script_card_list):
-            config = card.data
-            if isinstance(config, ScriptConfig) and config.script_type == ScriptType.PYTHON:
-                old_target = old_target_of.get(id(config))
-                new_target = new_target_of.get(id(config))
-                if old_target is not new_target:
-                    config.attach_direction = AttachDirection.NONE
-            card.data.idx = idx
             card.update_item(card.data, idx)
-        self.chosen_config.save()
         self._update_attach_margins()
 
     def _update_attach_margins(self) -> None:
@@ -389,6 +365,22 @@ class ScriptSettingRootInterface(VerticalScrollInterface):
                 nxt.attach_direction = AttachDirection.NONE
 
         self.chosen_config.delete_one(idx)
+        self.update_chain_display()
+
+    def script_config_copied(self, idx: int) -> None:
+        """复制脚本配置"""
+        if self.chosen_config is None:
+            return
+
+        self.chosen_config.duplicate_one(idx)
+        self.update_chain_display()
+
+    def script_config_moved(self, idx: int, new_idx: int) -> None:
+        """移动脚本配置（上移、下移、置顶）"""
+        if self.chosen_config is None:
+            return
+
+        self.chosen_config.move_one(idx, new_idx)
         self.update_chain_display()
 
 
