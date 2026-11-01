@@ -517,12 +517,18 @@ class ScriptChainConfig(YamlConfig):
             for config, target in zip(self.script_list, self.compute_attach_targets(), strict=True)
         }
         self.script_list = list(new_order)
-        for config, target in zip(self.script_list, self.compute_attach_targets(), strict=True):
-            if (
-                config.script_type == ScriptType.PYTHON
-                and old_target_of.get(id(config)) is not target
-            ):
-                config.attach_direction = AttachDirection.NONE
+        # 取消挂靠后该脚本会成为新的挂靠目标，可能导致其他脚本的目标连带变化，需反复检查直至稳定
+        changed = True
+        while changed:
+            changed = False
+            for config, target in zip(self.script_list, self.compute_attach_targets(), strict=True):
+                if (
+                    config.script_type == ScriptType.PYTHON
+                    and config.attach_direction != AttachDirection.NONE
+                    and old_target_of.get(id(config)) is not target
+                ):
+                    config.attach_direction = AttachDirection.NONE
+                    changed = True
         self.init_idx()
         self.save()
 
