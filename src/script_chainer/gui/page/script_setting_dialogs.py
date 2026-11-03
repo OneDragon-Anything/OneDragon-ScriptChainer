@@ -2,6 +2,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from qfluentwidgets import CaptionLabel, LineEdit, MessageBoxBase, SubtitleLabel
 
+from one_dragon_qt.widgets.combo_box import ComboBox
+from script_chainer.config.script_config import ComputerOperation
+
 
 class ChainRenameDialog(MessageBoxBase):
     def __init__(self, current_name: str, parent=None):
@@ -63,3 +66,28 @@ class ScriptRenameDialog(MessageBoxBase):
 
     def get_new_name(self) -> str:
         return self.name_input.text().strip()
+
+
+class ComputerOpEditDialog(MessageBoxBase):
+    """编辑电脑操作：选择要执行的操作。"""
+
+    def __init__(self, current_operation: str, parent=None):
+        MessageBoxBase.__init__(self, parent)
+        self.yesButton.setText('确定')
+        self.cancelButton.setText('取消')
+
+        self.title_label = SubtitleLabel(text="编辑电脑操作")
+        self.viewLayout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.operation_combo = ComboBox()
+        self.operation_combo.set_items(
+            [enum_item.value for enum_item in ComputerOperation],
+            target_value=current_operation or None,
+        )
+        if self.operation_combo.currentIndex() < 0:
+            self.operation_combo.setCurrentIndex(0)
+        self.operation_combo.setFixedWidth(300)
+        self.viewLayout.addWidget(self.operation_combo)
+
+    def get_operation(self) -> str:
+        return self.operation_combo.currentData() or ''

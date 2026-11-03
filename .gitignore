@@ -14,3 +14,5 @@ config/script_chain/
 config/custom.yml
 config/push.yml
 config/env.yml
+config/run.yml
+.pai/

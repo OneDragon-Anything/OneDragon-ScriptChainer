@@ -23,6 +23,7 @@ from one_dragon_qt.widgets.column import Column
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
     ComboBoxSettingCard,
 )
+from one_dragon_qt.widgets.setting_card.key_setting_card import KeySettingCard
 from one_dragon_qt.widgets.setting_card.multi_push_setting_card import (
     MultiPushSettingCard,
 )
@@ -280,6 +281,7 @@ class EditorSettingInterface(VerticalScrollInterface):
         content_widget = Column()
 
         content_widget.add_widget(self.get_appearance_group())
+        content_widget.add_widget(self.get_run_group())
         content_widget.add_widget(self.get_update_group())
 
         content_widget.add_stretch(1)
@@ -299,6 +301,19 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.theme_color_mode_opt = PushSettingCard(icon=FluentIcon.PALETTE, title='自定义主题色', text='选择颜色')
         self.theme_color_mode_opt.clicked.connect(self._on_custom_theme_color_clicked)
         group.addSettingCard(self.theme_color_mode_opt)
+
+        return group
+
+    def get_run_group(self) -> SettingCardGroup:
+        group = SettingCardGroup(gt('运行'))
+
+        self.privacy_screen_key_input = KeySettingCard(
+            icon=FluentIcon.POWER_BUTTON,
+            title='隐私屏开关快捷键',
+            content='组合键固定 Ctrl+Alt+Shift，按下后在显示和隐藏之间切换；点击右侧按钮后按下主键完成录制',
+            listen_mouse=False,
+        )
+        group.addSettingCard(self.privacy_screen_key_input)
 
         return group
 
@@ -359,6 +374,9 @@ class EditorSettingInterface(VerticalScrollInterface):
     def on_interface_shown(self) -> None:
         VerticalScrollInterface.on_interface_shown(self)
         self.theme_opt.init_with_adapter(self.ctx.custom_config.get_prop_adapter('theme'))
+        self.privacy_screen_key_input.init_with_adapter(
+            self.ctx.run_config.get_prop_adapter('privacy_screen_close_key')
+        )
         self.proxy_type_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('proxy_type'))
         self.personal_proxy_input.init_with_adapter(self.ctx.env_config.get_prop_adapter('personal_proxy'))
         self.gh_proxy_url_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('gh_proxy_url'))

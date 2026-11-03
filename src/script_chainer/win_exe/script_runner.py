@@ -16,8 +16,11 @@ from typing import TextIO
 from colorama import Fore, Style, init
 
 from one_dragon.utils import cmd_utils
+from one_dragon.base.config.config_item import get_config_item_from_enum
+from script_chainer.config.run_config import RunConfig
 from script_chainer.config.script_config import (
     CheckDoneMethods,
+    ComputerOperation,
     ScriptChainConfig,
     ScriptConfig,
     ScriptType,
@@ -33,6 +36,7 @@ from script_chainer.services.process_manager import (
     is_process_existed,
 )
 from script_chainer.utils.console_close_utils import force_exit_on_console_close
+from script_chainer.utils.privacy_screen import DEFAULT_CLOSE_KEY, PrivacyScreen
 from script_chainer.utils.process_name_utils import (
     normalize_process_names,
     process_name_equals,
@@ -585,15 +589,48 @@ def _run_script_in_group(
     log_notifier: LogNotifier | None = None,
     ctx: ScriptChainerContext | None = None,
     chain_name: str = '',
+    privacy_screen: PrivacyScreen | None = None,
 ) -> None:
     """运行运行组中的单个脚本。"""
     try:
         if script_config.script_type == ScriptType.PYTHON:
             _run_python_script(script_config, log_notifier)
+        elif script_config.script_type == ScriptType.COMPUTER_OP:
+            _run_computer_op(script_config, privacy_screen)
         else:
             _run_external_script_with_retries(script_config, log_notifier, ctx, chain_name)
     except Exception:
         log.error('脚本执行异常', exc_info=True)
+
+
+def _run_computer_op(
+    script_config: ScriptConfig,
+    privacy_screen: PrivacyScreen | None,
+) -> None:
+    """执行电脑操作类型的脚本项（如打开/关闭隐私屏）。
+
+    Args:
+        script_config: 脚本配置（script_type == 'computer_op'）。
+        privacy_screen: 本次链运行的隐私屏实例，为 None 时跳过。
+    """
+    op_config = get_config_item_from_enum(ComputerOperation, script_config.computer_operation)
+    if op_config is None:
+        print_message(f'电脑操作未选择 跳过 {script_config.script_display_name}', 'ERROR')
+        return
+    if privacy_screen is None:
+        print_message(f'隐私屏不可用 跳过电脑操作 {op_config.label}', 'ERROR')
+        return
+
+    print_message(f'执行电脑操作 {op_config.label}...')
+    if script_config.computer_operation == ComputerOperation.OPEN_PRIVACY_SCREEN.value.value:
+        if privacy_screen.start():
+            print_message(f'电脑操作执行完成 {op_config.label}', level='PASS')
+        else:
+            print_message(f'电脑操作执行失败 {op_config.label}', 'ERROR')
+        return
+
+    privacy_screen.stop()
+    print_message(f'电脑操作执行完成 {op_config.label}', level='PASS')
 
 
 def _run_python_script(
@@ -687,6 +724,15 @@ def _cleanup_active_pm():
         _active_pm = None
 
 
+def _get_privacy_screen_close_key() -> str:
+    """读取隐私屏开关热键的主键，读取失败时用默认值，避免影响脚本链。"""
+    try:
+        return RunConfig().privacy_screen_close_key
+    except Exception:
+        log.error('读取运行配置失败 隐私屏热键主键使用默认 %s', DEFAULT_CLOSE_KEY, exc_info=True)
+        return DEFAULT_CLOSE_KEY
+
+
 def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int | None = None) -> None:
     """运行指定的脚本链。
 
@@ -713,6 +759,8 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
         ctx.init()
     except Exception as e:
         log.error(f'初始化上下文实例失败: {e}')
+
+    privacy_screen = PrivacyScreen(close_key=_get_privacy_screen_close_key())
 
     try:
         if not chain_config.is_file_exists:
@@ -757,7 +805,8 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
                         )
 
                     for script_config in group.scripts:
-                        _run_script_in_group(script_config, log_notifier, ctx, chain_name)
+                        _run_script_in_group(script_config, log_notifier, ctx, chain_name,
+                                             privacy_screen=privacy_screen)
 
                     if group.host.notify_done:
                         _push_chain_notification(
@@ -776,6 +825,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
                         break
 
             print_message('已完成调试脚本' if debug_index is not None else '已完成全部脚本')
+            privacy_screen.stop()
 
         if shutdown_delay > 0:
             cmd_utils.shutdown_sys(shutdown_delay)
@@ -784,6 +834,7 @@ def run_chain(chain_name: str = '01', shutdown_delay: int = 0, debug_index: int 
         print_message('5秒后关闭本窗口')
         _exit_controller.wait(5)
     finally:
+        privacy_screen.stop()
         # 清理资源
         if ctx is not None:
             try:

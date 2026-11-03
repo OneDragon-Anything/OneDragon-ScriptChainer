@@ -36,6 +36,7 @@ class KeySettingCard(SettingCardBase, AdapterInitMixin):
                  icon: Union[str, QIcon, FluentIconBase], title: str, content: Optional[str]=None,
                  icon_size: IconSize = IconSize(16, 16),
                  margins: Margins = Margins(16, 16, 0, 16),
+                 listen_mouse: bool = True,
                  parent=None):
 
         SettingCardBase.__init__(
@@ -56,6 +57,7 @@ class KeySettingCard(SettingCardBase, AdapterInitMixin):
         self.btn.clicked.connect(self._on_btn_clicked)
 
         # 初始化监听器和键盘事件工作者
+        self.listen_mouse: bool = listen_mouse
         self.button_listener = None  # 按键监听
         self.key_worker = KeyEventWorker()
         self.key_worker.key_pressed.connect(self._on_key_signal)
@@ -71,7 +73,7 @@ class KeySettingCard(SettingCardBase, AdapterInitMixin):
         """
         if self.button_listener is None:
             self.button_listener = PcButtonListener(
-                self._on_key_press, listen_keyboard=True, listen_mouse=True
+                self._on_key_press, listen_keyboard=True, listen_mouse=self.listen_mouse
             )
             self.btn.setText(gt('请按键'))
             self.button_listener.start()
