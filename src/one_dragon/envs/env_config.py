@@ -182,6 +182,21 @@ class EnvConfig(YamlConfig):
         """
         self.update('force_update', new_value)
 
+    def get_resource_source_order(self) -> list[str]:
+        """资源下载的候选源顺序 千机链只从 GitHub Release 下载。"""
+        return ['github']
+
+    @property
+    def is_resource_source_auto(self) -> bool:
+        """是否由下载器自动选择资源源 千机链只有一个源 无需自动回退。"""
+        return False
+
+    def mark_resource_source_success(self, source_id: str) -> None:
+        """记录资源下载成功的源 千机链只有一个源 无需记录。"""
+
+    def mark_resource_source_failure(self, source_id: str) -> None:
+        """记录资源下载失败的源 千机链只有一个源 无需记录。"""
+
     @property
     def auto_update(self) -> bool:
         """
