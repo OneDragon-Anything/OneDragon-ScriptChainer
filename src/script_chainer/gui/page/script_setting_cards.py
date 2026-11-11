@@ -26,10 +26,7 @@ from script_chainer.config.script_config import (
     ScriptChainConfig,
     ScriptConfig,
 )
-from script_chainer.gui.page.script_setting_dialogs import (
-    ComputerOpEditDialog,
-    ScriptRenameDialog,
-)
+from script_chainer.gui.page.script_setting_dialogs import ComputerOpEditDialog, ScriptRenameDialog
 from script_chainer.gui.page.script_setting_utils import (
     show_error,
     show_success,

@@ -15,8 +15,8 @@ from typing import TextIO
 
 from colorama import Fore, Style, init
 
-from one_dragon.base.config.config_item import get_config_item_from_enum
 from one_dragon.utils import cmd_utils
+from one_dragon.base.config.config_item import get_config_item_from_enum
 from script_chainer.config.run_config import RunConfig
 from script_chainer.config.script_config import (
     CheckDoneMethods,
