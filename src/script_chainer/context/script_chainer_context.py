@@ -1,6 +1,7 @@
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING
 
 from one_dragon.base.config.notify_config import NotifyConfig
 from one_dragon.base.push.push_service import PushService
@@ -8,11 +9,15 @@ from one_dragon.custom.custom_config import CustomConfig
 from one_dragon.envs.env_config import EnvConfig
 from one_dragon.envs.ghproxy_service import GhProxyService
 from one_dragon.envs.project_config import ProjectConfig
+from one_dragon.envs.repo_config import RepoConfig
 from one_dragon.utils import os_utils
 from one_dragon.utils.log_utils import log
 from script_chainer.config.run_config import RunConfig
 from script_chainer.config.script_config import ScriptChainConfig
 from script_chainer.services.github_update_service import GithubUpdateService
+
+if TYPE_CHECKING:
+    from one_dragon_qt.services.download_queue_service import DownloadQueueService
 
 ONE_DRAGON_CONTEXT_EXECUTOR = ThreadPoolExecutor(thread_name_prefix='one_dragon_context', max_workers=1)
 
@@ -21,7 +26,8 @@ class ScriptChainerContext:
 
     def __init__(self):
         self.project_config: ProjectConfig = ProjectConfig()
-        self.env_config: EnvConfig = EnvConfig()
+        self.repo_config: RepoConfig = RepoConfig()
+        self.env_config: EnvConfig = EnvConfig(self.repo_config)
         self.custom_config: CustomConfig = CustomConfig()
         self.gh_proxy_service: GhProxyService = GhProxyService(self.env_config)
         self.github_update_service: GithubUpdateService = GithubUpdateService(self)
@@ -29,6 +35,17 @@ class ScriptChainerContext:
         self.notify_config: NotifyConfig = NotifyConfig(None, {})
         self.run_config: RunConfig = RunConfig()
         self._init_lock = threading.Lock()
+        self._download_queue: DownloadQueueService | None = None
+
+    @property
+    def download_queue(self) -> 'DownloadQueueService':
+        """进程内下载队列 仅配置器界面使用 延迟创建以免运行器加载 Qt。"""
+        if self._download_queue is None:
+            from one_dragon_qt.services.download_queue_service import (
+                DownloadQueueService,
+            )
+            self._download_queue = DownloadQueueService(self)
+        return self._download_queue
 
     def init(self) -> None:
         if not self._init_lock.acquire(blocking=False):
@@ -133,5 +150,10 @@ class ScriptChainerContext:
         App关闭后进行的操作 关闭一切可能资源操作
         @return:
         """
+        if self._download_queue is not None:
+            self._download_queue.cancel_all()
+            worker = self._download_queue._worker
+            if worker is not None:
+                worker.wait(5000)
         self.push_service.after_app_shutdown()
         ONE_DRAGON_CONTEXT_EXECUTOR.shutdown(wait=False, cancel_futures=True)

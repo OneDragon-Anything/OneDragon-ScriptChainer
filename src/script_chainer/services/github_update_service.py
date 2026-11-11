@@ -6,7 +6,6 @@ import sys
 import urllib.parse
 import urllib.request
 import zipfile
-from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -19,10 +18,8 @@ from one_dragon.utils.i18_utils import gt
 from one_dragon.utils.log_utils import log
 
 if TYPE_CHECKING:
+    from one_dragon_qt.services.download_queue_service import ResourceDownloadSpec
     from script_chainer.context.script_chainer_context import ScriptChainerContext
-
-ProgressCallback = Callable[[float, str], None]
-ProgressSignal = dict[str, str | None]
 
 APP_EXE_NAMES = (
     'OneDragon ScriptChainer.exe',
@@ -32,7 +29,6 @@ RELEASE_ZIP_PREFIX = 'OneDragon-ScriptChainer'
 UPDATE_DIR_NAME = 'github_update'
 RUNTIME_DIR_NAME = '.runtime'
 GITHUB_USER_AGENT = 'OneDragon-ScriptChainer'
-CANCEL_SIGNAL = 'cancel'
 
 
 class GithubUpdateService:
@@ -41,62 +37,54 @@ class GithubUpdateService:
     def __init__(self, ctx: 'ScriptChainerContext'):
         self.ctx = ctx
 
-    def download_and_restart(
-        self,
-        target_tag: str | None = None,
-        progress_callback: ProgressCallback | None = None,
-        progress_signal: ProgressSignal | None = None,
-    ) -> tuple[bool, str]:
-        if not os_utils.run_in_exe():
-            return False, gt('当前不是发布版，无法自动更新')
+    def build_download_spec(self, target_tag: str) -> 'ResourceDownloadSpec':
+        """构造可加入下载队列的更新任务。
+
+        下载完成后在 after_download 中解压并启动替换脚本，脚本会等当前进程退出后替换文件，
+        调用方在任务成功后需要退出程序。
+
+        Args:
+            target_tag: 要更新到的版本 tag。
+
+        Returns:
+            下载队列任务规格。
+        """
+        from one_dragon.version import __version__
+        from one_dragon_qt.services.download_queue_service import ResourceDownloadSpec
 
         work_dir = Path(os_utils.get_work_dir())
         update_dir = work_dir / '.temp' / UPDATE_DIR_NAME
         stage_dir = update_dir / 'stage'
+        downloader_param = self._get_downloader_param(target_tag, update_dir)
 
-        try:
+        def before_download() -> None:
+            if not os_utils.run_in_exe():
+                raise RuntimeError(gt('当前不是发布版，无法自动更新'))
             if update_dir.exists():
                 shutil.rmtree(update_dir)
             stage_dir.mkdir(parents=True, exist_ok=True)
 
-            if progress_callback is not None:
-                progress_callback(0, gt('正在获取 GitHub 更新版本'))
-
-            latest_tag = target_tag or self.get_latest_tag()
-            downloader_param = self._get_downloader_param(latest_tag, update_dir)
-            zip_path = update_dir / downloader_param.save_file_name
-            downloader = CommonDownloader(downloader_param)
-            proxy = self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None
-            ghproxy_url = self.ctx.env_config.gh_proxy_url if self.ctx.env_config.is_gh_proxy else None
-
-            if not downloader.download(
-                proxy_url=proxy,
-                ghproxy_url=ghproxy_url,
-                skip_if_existed=False,
-                progress_signal=progress_signal,
-                progress_callback=progress_callback,
-            ):
-                if self._is_cancelled(progress_signal):
-                    return False, gt('下载已取消')
-                return False, gt('下载 GitHub 更新失败')
-
-            if self._is_cancelled(progress_signal):
-                return False, gt('下载已取消')
-
-            if progress_callback is not None:
-                progress_callback(1, gt('正在解压更新包'))
-            self._extract_release(zip_path, stage_dir)
-
+        def after_download(success: bool) -> None:
+            if not success:
+                return
+            self._extract_release(update_dir / downloader_param.save_file_name, stage_dir)
             update_items = self._get_update_items(stage_dir)
             if not update_items:
-                return False, gt('更新包中没有可替换文件')
-
+                raise RuntimeError(gt('更新包中没有可替换文件'))
             script_path = self._write_apply_script(work_dir, update_dir, update_items)
             self._start_apply_script(script_path, work_dir)
-            return True, gt('更新包已下载完成，程序将重启并替换文件')
-        except Exception as e:
-            log.error('准备 GitHub 更新失败', exc_info=True)
-            return False, f"{gt('准备 GitHub 更新失败')}: {e}"
+
+        return ResourceDownloadSpec(
+            resource_id='script_chainer',
+            resource_type='app',
+            title=gt('千机链程序更新'),
+            current_version=__version__,
+            target_version=target_tag,
+            downloader_factory=lambda: CommonDownloader(downloader_param),
+            note=gt('下载完成后程序将重启并替换文件'),
+            before_download=before_download,
+            after_download=after_download,
+        )
 
     def get_latest_tags(self) -> tuple[str, str]:
         stable_tag = ''
@@ -182,15 +170,14 @@ class GithubUpdateService:
 
     def _get_downloader_param(self, latest_tag: str, update_dir: Path) -> CommonDownloaderParam:
         release_zip_name = f'{RELEASE_ZIP_PREFIX}-{latest_tag}.zip'
-        download_url = (
-            f'{self.ctx.project_config.github_homepage}'
-            f'/releases/download/{latest_tag}/{release_zip_name}'
+        download_urls = self.ctx.repo_config.get_resource_asset_urls(
+            'main', latest_tag, release_zip_name,
         )
 
         return CommonDownloaderParam(
             save_file_path=str(update_dir),
             save_file_name=release_zip_name,
-            github_release_download_url=download_url,
+            download_urls=download_urls,
         )
 
     def _extract_release(self, zip_path: Path, stage_dir: Path) -> None:
@@ -329,12 +316,6 @@ class GithubUpdateService:
             ],
             cwd=str(work_dir),
             creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-
-    def _is_cancelled(self, progress_signal: ProgressSignal | None) -> bool:
-        return (
-            progress_signal is not None
-            and progress_signal.get('signal') == CANCEL_SIGNAL
         )
 
     def _ps_quote(self, value: str) -> str:

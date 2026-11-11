@@ -13,13 +13,20 @@ from qfluentwidgets import (
     setTheme,
 )
 
+from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.custom.custom_config import ThemeEnum
-from one_dragon.envs.env_config import ProxyTypeEnum
+from one_dragon.envs.env_config import EnvConfig, ProxyTypeEnum
+from one_dragon.envs.repo_config import RepoConfig
 from one_dragon.utils import os_utils
 from one_dragon.utils.i18_utils import gt
 from one_dragon.utils.log_utils import log
+from one_dragon_qt.services.download_queue_service import (
+    ResourceDownloadTask,
+    ResourceDownloadTaskState,
+)
 from one_dragon_qt.services.theme_manager import ThemeManager
 from one_dragon_qt.widgets.column import Column
+from one_dragon_qt.widgets.download_queue_dialog import DownloadQueueDialog
 from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
     ComboBoxSettingCard,
 )
@@ -32,33 +39,21 @@ from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSetting
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.context.script_chainer_context import ScriptChainerContext
-from script_chainer.services.github_update_service import GithubUpdateService
 
 
-class GithubUpdateRunner(QThread):
+def build_resource_source_options(env_config: EnvConfig) -> list[ConfigItem]:
+    """构造资源下载源选项，自动项显示真实的首选源。"""
+    repo_config = env_config.repo_config
+    source_id = env_config.last_resource_source or env_config.get_recommended_resource_source()
+    preferred = repo_config.get_resource_source(source_id) if source_id else None
+    preferred_reason = gt('上次成功') if env_config.last_resource_source else gt('推荐')
 
-    progress_changed = Signal(float, str)
-    update_finished = Signal(bool, str)
-
-    def __init__(self, service: GithubUpdateService, target_version: str):
-        QThread.__init__(self)
-        self.service = service
-        self.target_version = target_version
-        self.progress_signal: dict[str, str | None] = {'signal': None}
-
-    def run(self) -> None:
-        success, message = self.service.download_and_restart(
-            self.target_version,
-            self._on_progress,
-            self.progress_signal,
-        )
-        self.update_finished.emit(success, message)
-
-    def _on_progress(self, progress: float, message: str) -> None:
-        self.progress_changed.emit(progress, message)
-
-    def cancel(self) -> None:
-        self.progress_signal['signal'] = 'cancel'
+    auto_label = gt('自动')
+    if preferred is not None:
+        auto_label = f'{auto_label} · {preferred_reason} {preferred.label}'
+    options: list[ConfigItem] = [ConfigItem(auto_label, RepoConfig.AUTO_RESOURCE_SOURCE_VALUE)]
+    options.extend(ConfigItem(source.label, source.source_id) for source in repo_config.resource_sources)
+    return options
 
 
 class GithubUpdateChecker(QThread):
@@ -119,14 +114,19 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         self.cancel_btn.setVisible(False)
 
+        self.queue_btn = PushButton(gt('下载队列'))
+        self.queue_btn.clicked.connect(self._on_queue_clicked)
+
         self.version_checker = GithubUpdateChecker(ctx)
         self.version_checker.check_finished.connect(self._on_version_check_finished)
 
-        self.update_runner: GithubUpdateRunner | None = None
+        self.update_task: ResourceDownloadTask | None = None
+        self.queue_dialog: DownloadQueueDialog | None = None
+        ctx.download_queue.task_updated.connect(self._on_queue_task_updated)
 
         MultiPushSettingCard.__init__(
             self,
-            btn_list=[self.channel_combo, self.check_btn, self.update_btn, self.cancel_btn],
+            btn_list=[self.channel_combo, self.check_btn, self.update_btn, self.cancel_btn, self.queue_btn],
             icon=FluentIcon.SYNC,
             title='程序更新',
             content='检查中...',
@@ -217,28 +217,43 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.update_btn.setText(gt('更新中'))
         self.cancel_btn.setVisible(True)
         self.cancel_btn.setEnabled(True)
-        self.setContent(gt('正在准备 GitHub 更新...'))
-        self.update_runner = GithubUpdateRunner(self.ctx.github_update_service, self.target_version)
-        self.update_runner.progress_changed.connect(self._on_update_progress)
-        self.update_runner.update_finished.connect(self._on_update_finished)
-        self.update_runner.start()
+        self.setContent(gt('已加入下载队列'))
+        spec = self.ctx.github_update_service.build_download_spec(self.target_version)
+        self.update_task = self.ctx.download_queue.enqueue(spec)
 
     def _on_cancel_clicked(self) -> None:
-        if not self._is_update_running() or self.update_runner is None:
+        if not self._is_update_running() or self.update_task is None:
             return
 
-        self.update_runner.cancel()
+        self.ctx.download_queue.cancel(self.update_task.task_key)
         self.cancel_btn.setDisabled(True)
         self.update_btn.setText(gt('取消中'))
         self.setContent(gt('正在取消下载...'))
 
-    def _on_update_progress(self, progress: float, message: str) -> None:
-        if progress > 0:
-            self.setContent(f'{message} {progress:.0%}')
+    def _on_queue_clicked(self) -> None:
+        if self.queue_dialog is None:
+            self.queue_dialog = DownloadQueueDialog(self.ctx.download_queue, self.window())
+        self.queue_dialog.show_queue()
+
+    def _on_queue_task_updated(self, task: ResourceDownloadTask) -> None:
+        if task is not self.update_task:
+            return
+
+        if task.state == ResourceDownloadTaskState.SUCCEEDED:
+            self._on_update_finished(True, gt('更新包已下载完成，程序将重启并替换文件'))
+        elif task.state == ResourceDownloadTaskState.CANCELLED:
+            self._on_update_finished(False, gt('下载已取消'))
+        elif task.state == ResourceDownloadTaskState.FAILED:
+            self._on_update_finished(False, task.progress.message or gt('下载 GitHub 更新失败'))
         else:
-            self.setContent(message)
+            progress = task.progress
+            self.setContent(
+                f'{gt(progress.message)} {progress.progress:.0%}' if progress.progress > 0
+                else gt(progress.message or '已加入下载队列')
+            )
 
     def _on_update_finished(self, success: bool, message: str) -> None:
+        self.update_task = None
         self.cancel_btn.setVisible(False)
         self.cancel_btn.setEnabled(False)
         self.setContent(message)
@@ -253,7 +268,7 @@ class GithubUpdateCard(MultiPushSettingCard):
         self.update_btn.setEnabled(True)
 
     def _is_update_running(self) -> bool:
-        return self.update_runner is not None and self.update_runner.isRunning()
+        return self.update_task is not None
 
     def _current_version(self) -> str:
         from one_dragon.version import __version__
@@ -323,6 +338,14 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.github_update_opt = GithubUpdateCard(self.ctx)
         group.addSettingCard(self.github_update_opt)
 
+        self.resource_source_opt = ComboBoxSettingCard(
+            icon=FluentIcon.GLOBE,
+            title='下载源',
+            content='自动模式优先使用上次成功源，失败后继续尝试其他源',
+            options_list=build_resource_source_options(self.ctx.env_config),
+        )
+        group.addSettingCard(self.resource_source_opt)
+
         self.proxy_type_opt = ComboBoxSettingCard(
             icon=FluentIcon.GLOBE,
             title='代理类型',
@@ -377,6 +400,7 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.privacy_screen_key_input.init_with_adapter(
             self.ctx.run_config.get_prop_adapter('privacy_screen_close_key')
         )
+        self.resource_source_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('resource_source'))
         self.proxy_type_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('proxy_type'))
         self.personal_proxy_input.init_with_adapter(self.ctx.env_config.get_prop_adapter('personal_proxy'))
         self.gh_proxy_url_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('gh_proxy_url'))
