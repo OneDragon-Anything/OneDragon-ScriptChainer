@@ -10,7 +10,6 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from one_dragon.base.web.common_downloader import (
-    GITHUB_SOURCE_ID,
     CommonDownloader,
     CommonDownloaderParam,
 )
@@ -171,15 +170,14 @@ class GithubUpdateService:
 
     def _get_downloader_param(self, latest_tag: str, update_dir: Path) -> CommonDownloaderParam:
         release_zip_name = f'{RELEASE_ZIP_PREFIX}-{latest_tag}.zip'
-        download_url = (
-            f'{self.ctx.project_config.github_homepage}'
-            f'/releases/download/{latest_tag}/{release_zip_name}'
+        download_urls = self.ctx.repo_config.get_resource_asset_urls(
+            'main', latest_tag, release_zip_name,
         )
 
         return CommonDownloaderParam(
             save_file_path=str(update_dir),
             save_file_name=release_zip_name,
-            download_urls={GITHUB_SOURCE_ID: download_url},
+            download_urls=download_urls,
         )
 
     def _extract_release(self, zip_path: Path, stage_dir: Path) -> None:

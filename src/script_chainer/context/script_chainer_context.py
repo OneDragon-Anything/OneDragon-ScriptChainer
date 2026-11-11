@@ -9,6 +9,7 @@ from one_dragon.custom.custom_config import CustomConfig
 from one_dragon.envs.env_config import EnvConfig
 from one_dragon.envs.ghproxy_service import GhProxyService
 from one_dragon.envs.project_config import ProjectConfig
+from one_dragon.envs.repo_config import RepoConfig
 from one_dragon.utils import os_utils
 from one_dragon.utils.log_utils import log
 from script_chainer.config.run_config import RunConfig
@@ -25,7 +26,8 @@ class ScriptChainerContext:
 
     def __init__(self):
         self.project_config: ProjectConfig = ProjectConfig()
-        self.env_config: EnvConfig = EnvConfig()
+        self.repo_config: RepoConfig = RepoConfig()
+        self.env_config: EnvConfig = EnvConfig(self.repo_config)
         self.custom_config: CustomConfig = CustomConfig()
         self.gh_proxy_service: GhProxyService = GhProxyService(self.env_config)
         self.github_update_service: GithubUpdateService = GithubUpdateService(self)

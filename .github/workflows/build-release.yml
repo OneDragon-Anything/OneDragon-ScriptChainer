@@ -353,3 +353,40 @@ jobs:
         gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan-release_note.yml -f tag=${{ needs.build.outputs.tag }}
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Trigger CNB Release sync
+      if: ${{ github.repository == 'OneDragon-Anything/OneDragon-ScriptChainer' }}
+      continue-on-error: true
+      shell: pwsh
+      env:
+        CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        RELEASE_TAG: ${{ needs.build.outputs.version }}
+      run: |
+        if ([string]::IsNullOrWhiteSpace($env:CNB_TOKEN)) {
+          throw 'Missing GitHub Actions secret: CNB_TOKEN'
+        }
+
+        $headers = @{
+          Accept = 'application/vnd.cnb.api+json'
+          Authorization = "Bearer $env:CNB_TOKEN"
+        }
+        $body = @{
+          branch = 'main'
+          event = 'api_trigger_release'
+          title = "Sync GitHub Release $env:RELEASE_TAG"
+          env = @{
+            RELEASE_TAG = $env:RELEASE_TAG
+          }
+        } | ConvertTo-Json -Depth 3
+
+        $response = Invoke-RestMethod `
+          -Uri 'https://api.cnb.cool/OneDragon-Anything/OneDragon-ScriptChainer/-/build/start' `
+          -Method Post `
+          -Headers $headers `
+          -ContentType 'application/json' `
+          -TimeoutSec 60 `
+          -Body $body
+        $response | ConvertTo-Json -Depth 5
+        if ($response.success -ne $true) {
+          throw "CNB build trigger failed: $($response.message)"
+        }

@@ -7,6 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('../config/project.yml', 'resources/config'),
+        ('../config/repository.yml', 'resources/config'),
         ('../assets', 'resources/assets')
     ],
     hiddenimports=[],

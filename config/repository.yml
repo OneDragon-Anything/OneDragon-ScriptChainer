@@ -1,0 +1,47 @@
+repositories:
+  primary: github
+  primary_branch: main
+  branches:
+    main:
+      label: 主分支
+      desc: ""
+  options:
+    github:
+      label: GitHub
+      url: "https://github.com/OneDragon-Anything/OneDragon-ScriptChainer.git"
+      use_proxy: true
+    cnb:
+      label: CNB
+      url: "https://cnb.cool/OneDragon-Anything/OneDragon-ScriptChainer.git"
+      use_proxy: false
+resource_download:
+  default: github
+  options:
+    github:
+      label: GitHub
+      value: "https://example.com/resource"
+  sources:
+    github:
+      label: GitHub
+      use_proxy: true
+    cnb:
+      label: CNB
+      use_proxy: false
+  recommend:
+    zh: cnb
+    en: github
+  repos:
+    main:
+      github: "https://github.com/OneDragon-Anything/OneDragon-ScriptChainer/releases"
+      cnb: "https://cnb.cool/OneDragon-Anything/OneDragon-ScriptChainer/-/releases"
+regions:
+  china_cnb:
+    label: 中国 - CNB
+    repository: cnb
+    values:
+      resource_source: cnb
+  oversea:
+    label: 海外
+    repository: github
+    values:
+      resource_source: github

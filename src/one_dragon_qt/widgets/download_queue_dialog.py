@@ -197,11 +197,7 @@ class DownloadQueueItemWidget(QWidget):
         progress = self.task.progress
         parts: list[str] = []
         if progress.source_id:
-            repo_config = getattr(self.service.ctx, 'repo_config', None)
-            source = (
-                repo_config.get_resource_source(progress.source_id)
-                if repo_config is not None else None
-            )
+            source = self.service.ctx.repo_config.get_resource_source(progress.source_id)
             parts.append(source.label if source is not None else progress.source_id.upper())
         if progress.downloaded_bytes:
             downloaded = format_byte_size(progress.downloaded_bytes)

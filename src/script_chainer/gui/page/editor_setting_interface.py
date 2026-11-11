@@ -13,8 +13,10 @@ from qfluentwidgets import (
     setTheme,
 )
 
+from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.custom.custom_config import ThemeEnum
-from one_dragon.envs.env_config import ProxyTypeEnum
+from one_dragon.envs.env_config import EnvConfig, ProxyTypeEnum
+from one_dragon.envs.repo_config import RepoConfig
 from one_dragon.utils import os_utils
 from one_dragon.utils.i18_utils import gt
 from one_dragon.utils.log_utils import log
@@ -37,6 +39,21 @@ from one_dragon_qt.widgets.setting_card.switch_setting_card import SwitchSetting
 from one_dragon_qt.widgets.setting_card.text_setting_card import TextSettingCard
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 from script_chainer.context.script_chainer_context import ScriptChainerContext
+
+
+def build_resource_source_options(env_config: EnvConfig) -> list[ConfigItem]:
+    """构造资源下载源选项，自动项显示真实的首选源。"""
+    repo_config = env_config.repo_config
+    source_id = env_config.last_resource_source or env_config.get_recommended_resource_source()
+    preferred = repo_config.get_resource_source(source_id) if source_id else None
+    preferred_reason = gt('上次成功') if env_config.last_resource_source else gt('推荐')
+
+    auto_label = gt('自动')
+    if preferred is not None:
+        auto_label = f'{auto_label} · {preferred_reason} {preferred.label}'
+    options: list[ConfigItem] = [ConfigItem(auto_label, RepoConfig.AUTO_RESOURCE_SOURCE_VALUE)]
+    options.extend(ConfigItem(source.label, source.source_id) for source in repo_config.resource_sources)
+    return options
 
 
 class GithubUpdateChecker(QThread):
@@ -321,6 +338,14 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.github_update_opt = GithubUpdateCard(self.ctx)
         group.addSettingCard(self.github_update_opt)
 
+        self.resource_source_opt = ComboBoxSettingCard(
+            icon=FluentIcon.GLOBE,
+            title='下载源',
+            content='自动模式优先使用上次成功源，失败后继续尝试其他源',
+            options_list=build_resource_source_options(self.ctx.env_config),
+        )
+        group.addSettingCard(self.resource_source_opt)
+
         self.proxy_type_opt = ComboBoxSettingCard(
             icon=FluentIcon.GLOBE,
             title='代理类型',
@@ -375,6 +400,7 @@ class EditorSettingInterface(VerticalScrollInterface):
         self.privacy_screen_key_input.init_with_adapter(
             self.ctx.run_config.get_prop_adapter('privacy_screen_close_key')
         )
+        self.resource_source_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('resource_source'))
         self.proxy_type_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('proxy_type'))
         self.personal_proxy_input.init_with_adapter(self.ctx.env_config.get_prop_adapter('personal_proxy'))
         self.gh_proxy_url_opt.init_with_adapter(self.ctx.env_config.get_prop_adapter('gh_proxy_url'))
